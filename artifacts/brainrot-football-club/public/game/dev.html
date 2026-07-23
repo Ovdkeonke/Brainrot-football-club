@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Brainrot Football Club — DEV</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script>
+    /* DEV MODE — separate save slot so normal version is untouched */
+    window.__devMode = true;
+    try {
+      const k = 'game-data:00000001:brainrot-football-club:profile-dev';
+      const p = JSON.parse(localStorage.getItem(k) || '{}');
+      p.coins = 100000;
+      localStorage.setItem(k, JSON.stringify(p));
+    } catch (e) {}
+  </script>
+</head>
+<body>
+  <main id="app">
+    <canvas id="game"></canvas>
+    <div id="overlay">
+
+      <section id="loading-screen" class="screen">
+        <p class="eyebrow">NEON STICKER STADIUM · DEV</p>
+        <h1>BRAINROT<br><span>FOOTBALL CLUB</span></h1>
+        <div class="loading-track"><i id="loading-bar"></i></div>
+        <p id="loading-text">Warming up the mascots…</p>
+        <button id="start-button" class="primary hidden">ENTER THE STADIUM</button>
+        <div id="event-countdown"></div>
+      </section>
+
+      <section id="club-screen" class="screen hidden">
+        <header class="topbar">
+          <div><p class="eyebrow">YOUR CLUB · DEV MODE</p><h2 id="club-name">MINT MAYHEM FC</h2></div>
+          <div class="coin-bank"><span>✦</span><b id="coin-count">0</b><small>COINS</small></div>
+        </header>
+        <div class="club-grid">
+          <article class="panel roster-panel">
+            <div class="panel-title"><span>STARTING 3</span><small>Pick your tactical trio</small></div>
+            <div id="lineup-slots" class="lineup-slots"></div>
+            <p id="team-bonus" class="team-bonus"></p>
+            <div class="action-row"><button id="play-bot" class="primary">PLAY QUICK MATCH</button><button id="create-room" class="secondary">CREATE ONLINE ROOM</button></div>
+            <div class="join-row"><input id="room-code" maxlength="5" placeholder="ROOM CODE" /><button id="join-room" class="secondary">JOIN</button></div>
+            <p id="online-status" class="status-text">Quick Match plays against the Neon Ninjas. Online rooms use a live two-player channel when another player joins.</p>
+          </article>
+          <article class="panel hatch-panel">
+            <div class="panel-title"><span>EGG LAB</span><small>Fresh recruits await</small></div>
+            <div id="egg-stage" class="egg-stage"><div class="egg-orb">?</div></div>
+            <p><b>Sticker Egg</b><br><small>Costs 70 coins • Common 65% • Rare 28% • Epic 7%</small></p>
+            <button id="hatch-button" class="gold">HATCH STICKER EGG — 70</button>
+            <div class="legendary-egg">
+              <b>LEGENDARY VAULT EGG</b>
+              <small>Costs 900 coins • Legendary chance 3%</small>
+              <button id="legendary-hatch-button" class="legendary">HATCH LEGENDARY EGG — 900</button>
+            </div>
+          </article>
+          <article class="panel collection-panel">
+            <div class="panel-title"><span>YOUR BRAINROTS</span><small id="collection-count">0 recruits</small></div>
+            <div id="collection" class="collection"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="match-screen" class="hidden">
+        <header class="match-hud">
+          <div class="team-score"><b id="blue-score">0</b><span>MINT MAYHEM</span></div>
+          <div class="timer-wrap"><strong id="match-timer">2:30</strong><small id="match-message">KICK OFF!</small></div>
+          <div class="team-score rival"><b id="red-score">0</b><span>NEON NINJAS</span></div>
+        </header>
+        <aside class="control-card"><b id="active-name">CAPTAIN</b><span id="active-role">MIDFIELDER</span><p>WASD move · <kbd>Space</kbd> pass/shoot · <kbd>Q</kbd> switch · <kbd>Shift</kbd> sprint</p></aside>
+        <button id="exit-match" class="exit-match">QUIT MATCH</button>
+        <div id="goal-banner" class="goal-banner hidden">GOOOOAL!</div>
+      </section>
+
+      <section id="result-screen" class="screen hidden">
+        <p id="result-kicker" class="eyebrow">MATCH COMPLETE</p>
+        <h2 id="result-title">YOU WIN!</h2>
+        <p id="result-score" class="result-score">3 — 1</p>
+        <div class="reward-card"><span>✦</span><div><b id="reward-coins">+45 COINS</b><small id="reward-detail">Victory bonus included</small></div></div>
+        <button id="back-club" class="primary">RETURN TO CLUB</button>
+      </section>
+
+      <section id="hatch-modal" class="modal hidden">
+        <div class="modal-card"><p class="eyebrow">NEW BRAINROT!</p><div id="hatch-reveal" class="hatch-reveal">?</div><h2 id="hatch-name">MINTY</h2><p id="hatch-details">RARE • MIDFIELDER</p><p id="hatch-trait">Trait</p><button id="close-hatch" class="primary">ADD TO CLUB</button></div>
+      </section>
+
+      <div id="toast" class="toast hidden"></div>
+    </div>
+  </main>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

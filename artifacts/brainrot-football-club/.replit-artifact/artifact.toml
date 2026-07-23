@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "Brainrot Football Club"
+version = "1.0.0"
+id = "artifacts/brainrot-football-club"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24366
+
+[services.development]
+run = "pnpm --filter @workspace/brainrot-football-club run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/brainrot-football-club", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/brainrot-football-club/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24366"
+BASE_PATH = "/"
