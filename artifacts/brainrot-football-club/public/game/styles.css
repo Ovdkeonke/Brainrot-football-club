@@ -15,4 +15,6 @@
 #event-countdown .cd-label { display: block; color: var(--coral); font-size: 11px; font-weight: 900; letter-spacing: .16em; text-transform: uppercase; margin-bottom: 6px; }
 #event-countdown .cd-timer { display: block; color: var(--gold); font-size: 24px; font-weight: 900; letter-spacing: .04em; text-shadow: 0 0 18px #ffc94a88; }
 #event-countdown .cd-live { display: block; color: var(--coral); font-size: 18px; font-weight: 900; animation: cd-pulse 1s infinite; }
+.event-bonus { position: fixed; top: 0; left: 0; right: 0; z-index: 9999; background: linear-gradient(90deg, #ff3300 0%, #ff8800 50%, #ff3300 100%); background-size: 200% 100%; color: #fff; text-align: center; font-weight: 900; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; padding: 9px 16px; animation: bonus-slide 3s linear infinite, cd-pulse 1s ease-in-out infinite; pointer-events: none; }
+@keyframes bonus-slide { 0%{background-position:0% 0%} 100%{background-position:200% 0%} }
 @keyframes cd-pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
