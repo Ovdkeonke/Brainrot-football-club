@@ -95,6 +95,20 @@
 
       <div id="toast" class="toast hidden"></div>
       <div id="event-bonus" class="event-bonus hidden">🔴 EVENT LIVE — 2× COINS &amp; 2× LUCK — <span id="event-bonus-timer"></span></div>
+      <div id="broadcast-ticker" class="broadcast-ticker hidden"><span id="broadcast-text"></span></div>
+      <!-- Dev admin panel -->
+      <button id="admin-open-btn" class="hidden" title="Dev Broadcast">📢</button>
+      <div id="admin-panel" class="hidden">
+        <button id="admin-close-btn">✕</button>
+        <h3>📢 Live Broadcast</h3>
+        <textarea id="admin-msg" placeholder="Nachricht an alle Spieler…"></textarea>
+        <input id="admin-pw" type="password" placeholder="Passwort" autocomplete="off" />
+        <div class="admin-row">
+          <button id="admin-send-btn">SENDEN</button>
+          <button id="admin-clear-btn">LÖSCHEN</button>
+        </div>
+        <div id="admin-status"></div>
+      </div>
     </div>
   </main>
   <script type="module" src="./src/main.js"></script>

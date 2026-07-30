@@ -103,7 +103,49 @@ function startCountdown(){
   }
   tick();setInterval(tick,1000);
 }
-function bindUI(){ $('start-button').onclick=()=>{show('club-screen');renderClub();audio.playBGM(ASSETS.bgm);};$('play-bot').onclick=beginMatch;$('create-room').onclick=createRoom;$('join-room').onclick=joinRoom;$('hatch-button').onclick=()=>hatch('sticker');$('legendary-hatch-button').onclick=()=>hatch('legendary');startCountdown();$('close-hatch').onclick=()=>$('hatch-modal').classList.add('hidden');$('back-club').onclick=()=>{show('club-screen');renderClub();};$('exit-match').onclick=()=>{state.playing=false;show('club-screen');renderClub();};addEventListener('keydown',e=>{if(['Space','KeyQ'].includes(e.code))e.preventDefault();keys.add(e.code);});addEventListener('keyup',e=>keys.delete(e.code)); initTouch(); }
+function pollBroadcast(){
+  async function check(){
+    try{
+      const r=await fetch('/api/broadcast');
+      if(!r.ok)return;
+      const data=await r.json();
+      const el=document.getElementById('broadcast-ticker');
+      const txt=document.getElementById('broadcast-text');
+      if(data.active&&data.message){if(el)el.classList.remove('hidden');if(txt)txt.textContent=data.message;}
+      else{if(el)el.classList.add('hidden');}
+    }catch{}
+  }
+  check();setInterval(check,5000);
+}
+function initAdminPanel(){
+  const btn=document.getElementById('admin-open-btn');
+  const panel=document.getElementById('admin-panel');
+  const closeBtn=document.getElementById('admin-close-btn');
+  const sendBtn=document.getElementById('admin-send-btn');
+  const clearBtn=document.getElementById('admin-clear-btn');
+  const msgInput=document.getElementById('admin-msg');
+  const pwInput=document.getElementById('admin-pw');
+  const statusEl=document.getElementById('admin-status');
+  if(!btn||!panel)return;
+  btn.classList.remove('hidden');
+  btn.onclick=()=>panel.classList.toggle('hidden');
+  closeBtn.onclick=()=>panel.classList.add('hidden');
+  async function post(method){
+    const secret=pwInput.value.trim();
+    const message=msgInput.value.trim();
+    if(!secret)return statusEl.textContent='❌ Passwort eingeben.';
+    statusEl.textContent='…';
+    try{
+      const r=await fetch('/api/broadcast',{method,headers:{'Content-Type':'application/json'},body:JSON.stringify({message,secret})});
+      const d=await r.json();
+      if(d.ok){statusEl.textContent=method==='DELETE'?'✅ Nachricht gelöscht.':'✅ Gesendet!';if(method!=='DELETE')msgInput.value='';}
+      else statusEl.textContent=`❌ ${d.error}`;
+    }catch(e){statusEl.textContent='❌ Fehler: '+e.message;}
+  }
+  sendBtn.onclick=()=>post('POST');
+  clearBtn.onclick=()=>post('DELETE');
+}
+function bindUI(){ $('start-button').onclick=()=>{show('club-screen');renderClub();audio.playBGM(ASSETS.bgm);};$('play-bot').onclick=beginMatch;$('create-room').onclick=createRoom;$('join-room').onclick=joinRoom;$('hatch-button').onclick=()=>hatch('sticker');$('legendary-hatch-button').onclick=()=>hatch('legendary');startCountdown();$('close-hatch').onclick=()=>$('hatch-modal').classList.add('hidden');$('back-club').onclick=()=>{show('club-screen');renderClub();};$('exit-match').onclick=()=>{state.playing=false;show('club-screen');renderClub();};addEventListener('keydown',e=>{if(['Space','KeyQ'].includes(e.code))e.preventDefault();keys.add(e.code);});addEventListener('keyup',e=>keys.delete(e.code)); initTouch(); pollBroadcast(); if(window.__devMode)initAdminPanel(); }
 
 function initTouch(){
   const sty=document.createElement('style');
