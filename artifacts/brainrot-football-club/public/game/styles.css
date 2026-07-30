@@ -23,9 +23,9 @@
 .broadcast-ticker::before { content: '📢 '; }
 
 /* ── Dev admin panel ── */
-#admin-open-btn { position: fixed; bottom: 18px; left: 18px; z-index: 10001; background: #1a0a4a; color: #c8a8ff; border: 2px solid #7c3aed; border-radius: 10px; font-size: 18px; width: 44px; height: 44px; cursor: pointer; display: flex; align-items: center; justify-content: center; opacity: .8; }
+#admin-open-btn { position: fixed; bottom: 72px; left: 18px; z-index: 10001; background: #1a0a4a; color: #c8a8ff; border: 2px solid #7c3aed; border-radius: 10px; font-size: 18px; width: 44px; height: 44px; cursor: pointer; display: flex; align-items: center; justify-content: center; opacity: .8; }
 #admin-open-btn:hover { opacity: 1; }
-#admin-panel { position: fixed; bottom: 72px; left: 18px; z-index: 10001; background: #0d0622; border: 2px solid #7c3aed; border-radius: 14px; padding: 18px; width: 300px; box-shadow: 0 4px 32px #7c3aed44; display: flex; flex-direction: column; gap: 10px; }
+#admin-panel { position: fixed; bottom: 126px; left: 18px; z-index: 10001; background: #0d0622; border: 2px solid #7c3aed; border-radius: 14px; padding: 18px; width: 300px; box-shadow: 0 4px 32px #7c3aed44; display: flex; flex-direction: column; gap: 10px; }
 #admin-panel h3 { margin: 0; color: #c8a8ff; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; }
 #admin-panel textarea { background: #1a0a4a; color: #fff; border: 1px solid #7c3aed; border-radius: 8px; padding: 8px; font-size: 13px; resize: vertical; min-height: 64px; font-family: inherit; }
 #admin-panel input[type=password] { background: #1a0a4a; color: #fff; border: 1px solid #7c3aed; border-radius: 8px; padding: 8px; font-size: 13px; font-family: inherit; }
