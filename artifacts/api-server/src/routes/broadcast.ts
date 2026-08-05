@@ -32,5 +32,5 @@ router.delete("/broadcast", (req, res) => {
   broadcast = null;
   res.json({ ok: true });
 });
-
+let boostUntil: number = 0; let pendingCoins: number = 0; router.post("/boost", (req, res) => { const { secret } = req.body as { secret?: string }; const expected = getSecret(); if (secret !== expected) return res.status(401).json({ error: "Falsches Passwort." }); boostUntil = Date.now() + 180000; res.json({ ok: true }); }); router.get("/boost", (_req, res) => { res.json({ active: Date.now() < boostUntil, until: boostUntil }); }); router.post("/coins", (req, res) => { const { secret } = req.body as { secret?: string }; const expected = getSecret(); if (secret !== expected) return res.status(401).json({ error: "Falsches Passwort." }); pendingCoins += 200; res.json({ ok: true }); }); router.get("/coins", (_req, res) => { if(pendingCoins > 0){ const amount = pendingCoins; pendingCoins = 0; res.json({ grant: amount }); } else { res.json({ grant: 0 }); } });
 export default router;
