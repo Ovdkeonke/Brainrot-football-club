@@ -95,11 +95,19 @@
 
       <div id="toast" class="toast hidden"></div>
       <div id="event-bonus" class="event-bonus hidden">🔴 EVENT LIVE — 2× COINS &amp; 2× LUCK — <span id="event-bonus-timer"></span></div>
-      <div id="broadcast-ticker" class="broadcast-ticker hidden"><span id="broadcast-text"></span></div>
+      <div id="broadcast-ticker" class="broadcast-ticker hidden"><span id="broadcast-text"></span></div> <div id="poll-popup" class="poll-popup hidden">
+  <div class="poll-card"> <button id="poll-close-btn">✕</button>
+    <h3>📊 UMFRAGE</h3>
+    <p id="poll-question"></p>
+    <button id="poll-btn-a"></button>
+    <button id="poll-btn-b"></button>
+    <p id="poll-result"></p>
+  </div>
+      </div>
       <!-- Dev admin panel -->
       <button id="admin-open-btn" class="" title="Dev Broadcast" onclick="document.getElementById('admin-panel').classList.remove('hidden')">📢</button>
       <div id="admin-panel" class="hidden">
-        <button id="admin-close-btn">✕</button>
+        <button id="admin-close-btn" onclick="document.getElementById('admin-panel').classList.add('hidden')">✕</button>
         <h3>📢 Live Broadcast</h3>
         <textarea id="admin-msg" placeholder="Nachricht an alle Spieler…"></textarea>
         <input id="admin-pw" type="password" placeholder="Passwort" autocomplete="off" />
