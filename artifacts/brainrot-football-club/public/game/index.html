@@ -24,7 +24,14 @@
         <h1>BRAINROT<br><span>FOOTBALL CLUB</span></h1>
         <div class="loading-track"><i id="loading-bar"></i></div>
         <p id="loading-text">Warming up the mascots…</p>
-        <button id="start-button" class="primary hidden">ENTER THE STADIUM</button>
+        <button id="start-button" class="primary hidden">ENTER THE STADIUM</button> <button id="event-area-btn" class="event-area-btn">🎪 EVENT AREA</button>
+
+<div id="event-area-panel" class="event-area-panel hidden">
+  <button id="event-area-close">✕</button>
+  <h2>🎪 EVENT AREA</h2>
+  <p>NO EVENT ACTIVE</p>
+  <small>Coming soon...</small>
+</div>
         <div id="event-countdown"></div>
       </section>
 
@@ -83,7 +90,26 @@
         <div class="modal-card"><p class="eyebrow">NEW BRAINROT!</p><div id="hatch-reveal" class="hatch-reveal">?</div><h2 id="hatch-name">MINTY</h2><p id="hatch-details">RARE • MIDFIELDER</p><p id="hatch-trait">Trait</p><button id="close-hatch" class="primary">ADD TO CLUB</button></div>
       </section>
 
-      <div id="toast" class="toast hidden"></div>
+      <div id="toast" class="toast hidden"></div> <div id="daily-wheel">
+  <button id="wheel-open-btn">🎡</button>
+  <div id="wheel-panel" class="hidden">
+    <button id="wheel-close-btn">✕</button>
+    <h2>DAILY LUCKY WHEEL</h2>
+    <div id="wheel">
+      <div class="wheel-pointer">▼</div>
+      <div class="wheel-inner">
+        <span>50</span>
+        <span>100</span>
+        <span>50</span>
+        <span>1000</span>
+        <span>500</span>
+        <span>100</span>
+      </div>
+    </div>
+    <p id="wheel-result">1 Dreh pro Tag</p>
+    <button id="wheel-spin-btn" class="gold">DREHEN!</button>
+  </div>
+      </div>
       <div id="event-bonus" class="event-bonus hidden">🔴 EVENT LIVE — 2× COINS &amp; 2× LUCK — <span id="event-bonus-timer"></span></div>
       <div id="broadcast-ticker" class="broadcast-ticker hidden"><span id="broadcast-text"></span></div> <div id="poll-popup" class="hidden" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1a1a2e;border:2px solid #f0c040;border-radius:16px;padding:24px;z-index:9999;min-width:280px;text-align:center;color:white;font-family:sans-serif;"><div id="poll-question" style="font-size:18px;font-weight:bold;margin-bottom:20px;"></div><div style="display:flex;gap:12px;justify-content:center;"><button id="poll-btn-a" style="flex:1;padding:12px;background:#2ecc71;border:none;border-radius:10px;color:white;font-size:16px;font-weight:bold;cursor:pointer;"></button><button id="poll-btn-b" style="flex:1;padding:12px;background:#e74c3c;border:none;border-radius:10px;color:white;font-size:16px;font-weight:bold;cursor:pointer;"></button></div><div id="poll-result" style="margin-top:16px;font-size:14px;opacity:0.8;"></div></div> <div id="poll-popup" class="hidden" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1a1a2e;border:2px solid #f0c040;border-radius:16px;padding:24px;z-index:9999;min-width:280px;text-align:center;color:white;font-family:sans-serif;"><div id="poll-question" style="font-size:18px;font-weight:bold;margin-bottom:20px;"></div><div style="display:flex;gap:12px;justify-content:center;"><button id="poll-btn-a" style="flex:1;padding:12px;background:#2ecc71;border:none;border-radius:10px;color:white;font-size:16px;font-weight:bold;cursor:pointer;"></button><button id="poll-btn-b" style="flex:1;padding:12px;background:#e74c3c;border:none;border-radius:10px;color:white;font-size:16px;font-weight:bold;cursor:pointer;"></button></div><div id="poll-result" style="margin-top:16px;font-size:14px;opacity:0.8;"></div></div>
     </div>

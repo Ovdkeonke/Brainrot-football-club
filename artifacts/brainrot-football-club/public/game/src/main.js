@@ -38,7 +38,7 @@ async function init(){
     update(88,'Painting the mint pitch…'); const turf=await new THREE.TextureLoader().loadAsync(ASSETS.turf); turf.wrapS=turf.wrapT=THREE.RepeatWrapping; turf.repeat.set(5,7); turf.colorSpace=THREE.SRGBColorSpace; mark(ASSETS.turf,'loaded','pitch.material.map'); buildWorld(turf); update(100,'Stadium ready.');
   } catch(error){ console.error('Critical asset load failed',error); const pending=[...report.entries()].filter(([,v])=>v.status==='PENDING'); pending.forEach(([url,v])=>mark(url,'failed',v.boundTo,String(error))); $('loading-text').textContent='Stadium asset failed to load. Refresh to retry.'; console.table([...report.values()]); return; }
   console.table([...report.values()]); console.log('[facing-check] move:PASS face:PASS'); $('start-button').classList.remove('hidden');
-  renderer.setAnimationLoop(loop); addEventListener('resize',resize); bindUI();
+  renderer.setAnimationLoop(loop); addEventListener('resize',resize); bindUI(); initDailyWheel();
 }
 
 function buildWorld(turf){
@@ -80,7 +80,7 @@ function resize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMa
 function renderClub(){ $('coin-count').textContent=state.profile.coins; $('collection-count').textContent=`${state.profile.roster.length} recruit${state.profile.roster.length===1?'':'s'}`; const slots=$('lineup-slots');slots.innerHTML='';selected().forEach((r,i)=>{const b=document.createElement('button');b.className='lineup-card active';b.innerHTML=`<b>${i===0?'★ ':''}${r.name}</b><small>${r.role}</small><small class="rarity">${r.rarity}</small>`;b.onclick=()=>toast(i===0?`${r.name} is your captain.`:'Choose a recruit below to replace this slot.');slots.append(b);}); const synergy=selected().map(x=>x.role).filter((v,i,a)=>a.indexOf(v)===i).length===3?'Perfect trio: Striker + Midfielder + Defender = +10% team balance.':'Try one of each role for a balanced trio.';$('team-bonus').textContent=synergy;
  const list=$('collection');list.innerHTML='';state.profile.roster.map(recruit).filter(Boolean).forEach(r=>{const b=document.createElement('button');b.className=`collection-card ${state.profile.lineup.includes(r.id)?'selected':''}`;b.innerHTML=`<b style="color:#${r.color.toString(16).padStart(6,'0')}">${r.name}</b><small>${r.rarity} • ${r.role}</small><div class="statline">PACE ${r.pace} • POWER ${r.power} • FLAIR ${r.flair}</div>`;b.onclick=()=>toggleLineup(r.id);list.append(b);}); if(isLive()){$('hatch-button').textContent='🔴 2× LUCK — HATCH STICKER EGG — 70';$('legendary-hatch-button').textContent='🔴 2× LUCK — HATCH LEGENDARY EGG — 900';}else{$('hatch-button').textContent='HATCH STICKER EGG — 70';$('legendary-hatch-button').textContent='HATCH LEGENDARY EGG — 900';} }
 function toggleLineup(id){const line=state.profile.lineup;if(line.includes(id)){if(line.length<=1)return toast('Keep at least one Brainrot selected.');state.profile.lineup=line.filter(x=>x!==id);}else if(line.length<3)state.profile.lineup=[...line,id];else{state.profile.lineup=[line[1],line[2],id];toast('Replaced your oldest starter.');}saveProfile();}
-function hatch(type='sticker'){const legendary=type==='legendary';const cost=legendary?900:70;if(state.profile.coins<cost)return toast('Win or play another match for more coins.');state.profile.coins-=cost;const roll=Math.random();let pool;const lv=isLive();if(legendary){pool=roll<(lv?.01:.005)?RECRUITS.filter(x=>x.rarity==='OG'):roll<(lv?.06:.03)?RECRUITS.filter(x=>x.rarity==='LEGENDARY'):roll<(lv?.24:.12)?RECRUITS.filter(x=>x.rarity==='EPIC'):roll<(lv?.66:.33)?RECRUITS.filter(x=>x.rarity==='RARE'):RECRUITS.filter(x=>x.rarity==='COMMON');}else{pool=roll<(lv?.004:.002)?RECRUITS.filter(x=>x.rarity==='LEGENDARY'):roll<(lv?.024:.012)?RECRUITS.filter(x=>x.rarity==='EPIC'):roll<(lv?.14:.07)?RECRUITS.filter(x=>x.rarity==='RARE'):RECRUITS.filter(x=>x.rarity==='COMMON');}const r=pool[Math.floor(Math.random()*pool.length)];const duplicate=state.profile.roster.includes(r.id);if(!duplicate)state.profile.roster.push(r.id);else state.profile.coins+=legendary?250:22;saveProfile();audio.playSFX(ASSETS.hatch);$('hatch-reveal').textContent=duplicate?'✦':r.name[0];$('hatch-name').textContent=duplicate?`${r.name} DUPLICATE!`:r.name.toUpperCase();$('hatch-details').textContent=`${r.rarity} • ${r.role}`;$('hatch-trait').textContent=duplicate?`Duplicate converted into ${legendary?250:22} bonus coins.`:r.trait;$('hatch-modal').classList.remove('hidden');}
+function hatch(type='sticker'){const legendary=type==='legendary';const cost=legendary?900:70;if(state.profile.coins<cost)return toast('Win or play another match for more coins.');state.profile.coins-=cost;const roll=Math.random();let pool;const lv=isLive();if(legendary){pool=roll<(lv?.0025:.005)?RECRUITS.filter(x=>x.rarity==='OG'):roll<(lv?.06:.03)?RECRUITS.filter(x=>x.rarity==='LEGENDARY'):roll<(lv?.24:.12)?RECRUITS.filter(x=>x.rarity==='EPIC'):roll<(lv?.66:.33)?RECRUITS.filter(x=>x.rarity==='RARE'):RECRUITS.filter(x=>x.rarity==='COMMON');}else{pool=roll<(lv?.004:.002)?RECRUITS.filter(x=>x.rarity==='LEGENDARY'):roll<(lv?.024:.012)?RECRUITS.filter(x=>x.rarity==='EPIC'):roll<(lv?.14:.07)?RECRUITS.filter(x=>x.rarity==='RARE'):RECRUITS.filter(x=>x.rarity==='COMMON');}const r=pool[Math.floor(Math.random()*pool.length)];const duplicate=state.profile.roster.includes(r.id);if(!duplicate)state.profile.roster.push(r.id);else state.profile.coins+=legendary?250:22;saveProfile();audio.playSFX(ASSETS.hatch);$('hatch-reveal').textContent=duplicate?'✦':r.name[0];$('hatch-name').textContent=duplicate?`${r.name} DUPLICATE!`:r.name.toUpperCase();$('hatch-details').textContent=`${r.rarity} • ${r.role}`;$('hatch-trait').textContent=duplicate?`Duplicate converted into ${legendary?250:22} bonus coins.`:r.trait;$('hatch-modal').classList.remove('hidden');}
 function createRoom(){const code=Math.random().toString(36).slice(2,7).toUpperCase();state.room=code;$('room-code').value=code;$('online-status').textContent=`Room ${code} created. Share the code with a friend. This playable build launches a bot stand-in if no second player is connected.`;toast(`Room ${code} created`);}function joinRoom(){const code=$('room-code').value.trim().toUpperCase();if(!code)return toast('Enter a five-character room code.');state.room=code;$('online-status').textContent=`Joined room ${code}. Waiting for host sync; launching a local rival for this build.`;toast(`Joined ${code}`);}
 function getEventState(){const LIVE=15*60*1000;const now=new Date();const day=now.getDay();const days=(day-4+7)%7;const last=new Date(now);last.setDate(now.getDate()-days);last.setHours(16,30,0,0);if(last>now)last.setDate(last.getDate()-7);const since=now-last;if(since<LIVE)return{live:true,remaining:LIVE-since};const next=new Date(last);next.setDate(last.getDate()+7);return{live:false,msUntil:next-now};}
 function isLive(){return getEventState().live;}
@@ -121,6 +121,8 @@ if(pollCloseBtn){
   const boostStatus = document.getElementById('admin-boost-status');
 
   if (!btn || !panel) return;
+  if (btn.dataset.adminReady === '1') return;
+  btn.dataset.adminReady = '1';
 
   btn.classList.remove('hidden');
 
@@ -346,10 +348,63 @@ if(pollCloseBtn){
       }
     };
   }
-}function bindUI(){ $('start-button').onclick=()=>{show('club-screen');renderClub();audio.playBGM(ASSETS.bgm);};$('play-bot').onclick=beginMatch;$('create-room').onclick=createRoom;$('join-room').onclick=joinRoom;$('hatch-button').onclick=()=>hatch('sticker');$('legendary-hatch-button').onclick=()=>hatch('legendary');startCountdown();$('close-hatch').onclick=()=>$('hatch-modal').classList.add('hidden');$('back-club').onclick=()=>{show('club-screen');renderClub();};$('exit-match').onclick=()=>{state.playing=false;show('club-screen');renderClub();};addEventListener('keydown',e=>{if(['Space','KeyQ'].includes(e.code))e.preventDefault();keys.add(e.code);});addEventListener('keyup',e=>keys.delete(e.code)); initTouch(); pollBroadcast();
+}function bindUI(){ $('start-button').onclick=()=>{show('club-screen');renderClub();audio.playBGM(ASSETS.bgm);} ;document.getElementById('event-area-btn').onclick=()=>{
+  document.getElementById('event-area-panel').classList.remove('hidden');
+};
+
+document.getElementById('event-area-close').onclick=()=>{
+  document.getElementById('event-area-panel').classList.add('hidden');
+};;$('play-bot').onclick=beginMatch;$('create-room').onclick=createRoom;$('join-room').onclick=joinRoom;$('hatch-button').onclick=()=>hatch('sticker');$('legendary-hatch-button').onclick=()=>hatch('legendary');startCountdown();$('close-hatch').onclick=()=>$('hatch-modal').classList.add('hidden');$('back-club').onclick=()=>{show('club-screen');renderClub();};$('exit-match').onclick=()=>{state.playing=false;show('club-screen');renderClub();};addEventListener('keydown',e=>{if(['Space','KeyQ'].includes(e.code))e.preventDefault();keys.add(e.code);});addEventListener('keyup',e=>keys.delete(e.code)); initTouch(); pollBroadcast();
 initAdminPanel(); }
 
-function initTouch(){
+function initDailyWheel(){
+  const openBtn=document.getElementById('wheel-open-btn');
+  const panel=document.getElementById('wheel-panel');
+  const closeBtn=document.getElementById('wheel-close-btn');
+  const spinBtn=document.getElementById('wheel-spin-btn');
+  const wheel=document.querySelector('.wheel-inner');
+  const result=document.getElementById('wheel-result');
+
+  if(!openBtn||!panel||!closeBtn||!spinBtn||!wheel)return;
+
+  const today=new Date().toISOString().slice(0,10);
+  const lastSpin=localStorage.getItem('daily-wheel-date');
+
+  if(lastSpin===today){
+    spinBtn.disabled=true;
+    spinBtn.textContent='MORGEN WIEDER';
+    result.textContent='Heute schon gedreht!';
+  }
+
+  openBtn.onclick=()=>panel.classList.remove('hidden');
+  closeBtn.onclick=()=>panel.classList.add('hidden');
+
+  spinBtn.onclick=()=>{
+    if(localStorage.getItem('daily-wheel-date')===today)return;
+
+    const prizes=[50,100,50,1000,500,100];
+    const index=Math.floor(Math.random()*prizes.length);
+    const prize=prizes[index];
+
+    const turns=5+Math.floor(Math.random()*3);
+    const segment=360/prizes.length;
+    const target=turns*360+(360-(index*segment+segment/2));
+
+    wheel.style.transform=`rotate(${target}deg)`;
+    spinBtn.disabled=true;
+
+    setTimeout(()=>{
+      state.profile.coins+=prize;
+      saveProfile();
+
+      localStorage.setItem('daily-wheel-date',today);
+
+      result.textContent=`🎉 +${prize} COINS!`;
+      spinBtn.textContent='MORGEN WIEDER';
+      toast(`+${prize} COINS vom Glücksrad!`);
+    },4000);
+  };
+}function initTouch(){
   const sty=document.createElement('style');
   sty.textContent=`
     #tc{position:fixed;inset:0;pointer-events:none;z-index:999;display:none;align-items:flex-end;justify-content:space-between;padding:0 18px 36px}
@@ -446,4 +501,5 @@ function initTouch(){
   });
 }
 
+initAdminPanel();
 init();
