@@ -348,13 +348,7 @@ if(pollCloseBtn){
       }
     };
   }
-}function bindUI(){ $('start-button').onclick=()=>{show('club-screen');renderClub();audio.playBGM(ASSETS.bgm);} ;document.getElementById('event-area-btn').onclick=()=>{
-  document.getElementById('event-area-panel').classList.remove('hidden');
-};
-
-document.getElementById('event-area-close').onclick=()=>{
-  document.getElementById('event-area-panel').classList.add('hidden');
-};;$('play-bot').onclick=beginMatch;$('create-room').onclick=createRoom;$('join-room').onclick=joinRoom;$('hatch-button').onclick=()=>hatch('sticker');$('legendary-hatch-button').onclick=()=>hatch('legendary');startCountdown();$('close-hatch').onclick=()=>$('hatch-modal').classList.add('hidden');$('back-club').onclick=()=>{show('club-screen');renderClub();};$('exit-match').onclick=()=>{state.playing=false;show('club-screen');renderClub();};addEventListener('keydown',e=>{if(['Space','KeyQ'].includes(e.code))e.preventDefault();keys.add(e.code);});addEventListener('keyup',e=>keys.delete(e.code)); initTouch(); pollBroadcast();
+}function bindUI(){ $('start-button').onclick=()=>{show('club-screen');renderClub();audio.playBGM(ASSETS.bgm);} ;const eventAreaBtn=document.getElementById('event-area-btn');const eventAreaPanel=document.getElementById('event-area-panel');const eventAreaClose=document.getElementById('event-area-close');if(eventAreaBtn&&eventAreaPanel)eventAreaBtn.onclick=()=>eventAreaPanel.classList.remove('hidden');if(eventAreaClose&&eventAreaPanel)eventAreaClose.onclick=()=>eventAreaPanel.classList.add('hidden');$('play-bot').onclick=beginMatch;$('create-room').onclick=createRoom;$('join-room').onclick=joinRoom;$('hatch-button').onclick=()=>hatch('sticker');$('legendary-hatch-button').onclick=()=>hatch('legendary');startCountdown();$('close-hatch').onclick=()=>$('hatch-modal').classList.add('hidden');$('back-club').onclick=()=>{show('club-screen');renderClub();};$('exit-match').onclick=()=>{state.playing=false;show('club-screen');renderClub();};addEventListener('keydown',e=>{if(['Space','KeyQ'].includes(e.code))e.preventDefault();keys.add(e.code);});addEventListener('keyup',e=>keys.delete(e.code)); initTouch(); pollBroadcast();
 initAdminPanel(); }
 
 function initDailyWheel(){
