@@ -14,7 +14,7 @@ const report = new Map(Object.entries(ASSETS).map(([key,url]) => [url,{ entity:k
 const state = { profile: loadProfile(), playing:false, score:[0,0], time:150, active:0, lastShot:0, room:null };
 let scene, camera, renderer, clock, audio, ball, ballVelocity = new THREE.Vector3(), players = [], botPlayers = [], obstacles = [], mascotTemplate, goalTemplate, ballTemplate, eggTemplate, matchRoot, pitch, goalBannerTimer = 0;
 const keys = new Set();
-
+const BANANINI_EGG_END = new Date('2026-10-01T16:30:00');
 function loadProfile(){ try { const saved=JSON.parse(localStorage.getItem(localKey)); const p={ ...DEFAULT_PROFILE, ...saved, roster:Array.from(new Set(saved?.roster || DEFAULT_PROFILE.roster)), lineup:saved?.lineup || DEFAULT_PROFILE.lineup }; if(!window.__devMode && p.coins>=100000){ p.coins=DEFAULT_PROFILE.coins; localStorage.setItem(localKey,JSON.stringify(p)); } return p; } catch { return structuredClone(DEFAULT_PROFILE); } }
 function saveProfile(){ localStorage.setItem(localKey, JSON.stringify(state.profile)); renderClub(); }
 function recruit(id){ return RECRUITS.find(x=>x.id===id); }
@@ -497,3 +497,61 @@ function initDailyWheel(){
 
 initAdminPanel();
 init();
+function initBananiniEgg(){
+  const panel = document.querySelector('.hatch-panel');
+  if(!panel) return;
+
+  const egg = document.createElement('div');
+  egg.className = 'legendary-egg';
+  egg.id = 'bananini-egg';
+
+  egg.innerHTML = `
+    <b>🍌 BANANINI EGG</b>
+    <small>35.000 Coins • Garantiert Bananini</small>
+    <p id="bananini-countdown"></p>
+    <button id="bananini-hatch-button" class="gold">
+      HATCH BANANINI EGG — 35.000
+    </button>
+  `;
+
+  panel.appendChild(egg);
+
+  const countdown = document.getElementById('bananini-countdown');
+  const button = document.getElementById('bananini-hatch-button');
+
+  function updateBananiniEgg(){
+    const remaining = BANANINI_EGG_END - new Date();
+
+    if(remaining <= 0){
+      egg.remove();
+      return;
+    }
+
+    const days = Math.floor(remaining / 86400000);
+    const hours = Math.floor((remaining % 86400000) / 3600000);
+    const minutes = Math.floor((remaining % 3600000) / 60000);
+
+    countdown.textContent = `Noch ${days}T ${hours}Std ${minutes}Min`;
+  }
+
+  updateBananiniEgg();
+  setInterval(updateBananiniEgg, 60000);
+
+  button.onclick = ()=>{
+    if(state.profile.coins < 35000){
+      alert('Nicht genug Coins!');
+      return;
+    }
+
+    state.profile.coins -= 35000;
+    state.profile.roster.push('bananini');
+    saveProfile();
+
+    document.getElementById('coin-count').textContent =
+      state.profile.coins.toLocaleString();
+
+    alert('🍌 BANANINI erhalten!');
+  };
+}
+
+initBananiniEgg();
