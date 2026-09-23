@@ -14,8 +14,9 @@ const report = new Map(Object.entries(ASSETS).map(([key,url]) => [url,{ entity:k
 const state = { profile: loadProfile(), playing:false, score:[0,0], time:150, active:0, lastShot:0, room:null };
 let scene, camera, renderer, clock, audio, ball, ballVelocity = new THREE.Vector3(), players = [], botPlayers = [], obstacles = [], mascotTemplate, goalTemplate, ballTemplate, eggTemplate, matchRoot, pitch, goalBannerTimer = 0;
 const keys = new Set();
-const BANANINI_EGG_END = new Date('2026-10-01T16:30:00');
-function loadProfile(){ try { const saved=JSON.parse(localStorage.getItem(localKey)); const p={ ...DEFAULT_PROFILE, ...saved, roster:Array.from(new Set(saved?.roster || DEFAULT_PROFILE.roster)), lineup:saved?.lineup || DEFAULT_PROFILE.lineup }; if(!window.__devMode && p.coins>=100000){ p.coins=DEFAULT_PROFILE.coins; localStorage.setItem(localKey,JSON.stringify(p)); } return p; } catch { return structuredClone(DEFAULT_PROFILE); } }
+const BANANINI_EGG_END = new Date('2026-10-01T16:30:00'); 
+const LUCK_BOOST_KEY = 'luck-boost-until';
+function loadProfile(){ try { const saved=JSON.parse(localStorage.getItem(localKey)); const p={ ...DEFAULT_PROFILE, ...saved, roster:Array.from(new Set(saved?.roster || DEFAULT_PROFILE.roster)), lineup:saved?.lineup || DEFAULT_PROFILE.lineup }; const numericCoins=Number(p.coins); p.coins=Number.isFinite(numericCoins)&&numericCoins>=0?numericCoins:DEFAULT_PROFILE.coins; if(!window.__devMode && p.coins>=100000){ p.coins=DEFAULT_PROFILE.coins; localStorage.setItem(localKey,JSON.stringify(p)); } return p; } catch { return structuredClone(DEFAULT_PROFILE); } }
 function saveProfile(){ localStorage.setItem(localKey, JSON.stringify(state.profile)); renderClub(); }
 function recruit(id){ return RECRUITS.find(x=>x.id===id); }
 function selected(){ return state.profile.lineup.map(recruit).filter(Boolean); }
@@ -24,7 +25,16 @@ function show(name){ screens.forEach(x=>$(x).classList.toggle('hidden',x!==name)
 function mark(url,status,boundTo,error){ report.set(url,{entity:Object.entries(ASSETS).find(([,v])=>v===url)?.[0]||url,status,boundTo,error}); }
 
 async function init(){
-  renderer = new THREE.WebGLRenderer({ canvas:$('game'), antialias:true, alpha:false }); renderer.setSize(innerWidth,innerHeight); renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap; renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.25;
+  try{
+    renderer = new THREE.WebGLRenderer({ canvas:$('game'), antialias:true, alpha:false, powerPreference:'default', failIfMajorPerformanceCaveat:false }); renderer.setSize(innerWidth,innerHeight); renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap; renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.25;
+  }catch(error){
+    console.error('3D renderer unavailable',error);
+    $('loading-text').textContent='3D-Modus nicht verfügbar — Club-Modus wird geladen.';
+    $('start-button').classList.remove('hidden');
+    bindUI();
+    initDailyWheel();
+    return;
+  }
   scene = new THREE.Scene(); scene.background = new THREE.Color(0x07142d); camera = new THREE.PerspectiveCamera(42,innerWidth/innerHeight,.1,160); camera.position.set(0,19,22); camera.lookAt(0,0,0); clock=new THREE.Clock(); audio=new AudioManager(); audio.init(camera);
   scene.add(new THREE.HemisphereLight(0xaed8ff,0x071226,1.8)); const sun=new THREE.DirectionalLight(0xffffff,2.7); sun.position.set(-10,20,12); sun.castShadow=true; sun.shadow.mapSize.set(1024,1024); scene.add(sun);
   const loader=new GLTFLoader(); const draco=new DRACOLoader(); draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/libs/draco/'); loader.setDRACOLoader(draco);
@@ -55,7 +65,7 @@ function createEggPreview(){ const egg=cloneAsset(eggTemplate); egg.name='egg-pr
 function addObstacles(){ obstacles=[]; const mat=new THREE.MeshStandardMaterial({color:0x223355,roughness:.45,metalness:.7,emissive:0x0a1a3a,emissiveIntensity:.55}); const glowMat=new THREE.MeshBasicMaterial({color:0x4488ff,transparent:true,opacity:.22,side:THREE.DoubleSide}); const spots=[[-7,-8],[7,-8],[-7,8],[7,8]]; spots.forEach(([x,z])=>{ const hw=.7,hd=.7,h=2.1; const box=new THREE.Mesh(new THREE.BoxGeometry(hw*2,h,hd*2),mat); box.position.set(x,h/2,z); box.castShadow=true; matchRoot.add(box); const glow=new THREE.Mesh(new THREE.BoxGeometry(hw*2+.18,h+.1,hd*2+.18),glowMat); glow.position.set(x,h/2,z); matchRoot.add(glow); obstacles.push({x,z,hw,hd}); }); }
 function makePlayer(data,team,index){ const root=new THREE.Group(); root.userData={data,team,index,velocity:new THREE.Vector3(),home:new THREE.Vector3(),cooldown:0}; const pivot=new THREE.Group(); pivot.rotation.y=FACING.player.visualPivotYaw; const visual=cloneAsset(mascotTemplate); visual.scale.setScalar(1.12); visual.traverse(n=>{if(n.isMesh && n.material.color){ n.material.color.lerp(new THREE.Color(data.color),.33); }}); pivot.add(visual); root.add(pivot); const glow=new THREE.Mesh(new THREE.RingGeometry(.68,.82,24),new THREE.MeshBasicMaterial({color:data.color,transparent:true,opacity:.78,side:THREE.DoubleSide})); glow.rotation.x=-Math.PI/2; glow.position.y=.035; root.add(glow); matchRoot.add(root); return root; }
 function resetTeams(){ players.forEach(p=>matchRoot.remove(p)); botPlayers.forEach(p=>matchRoot.remove(p)); players=[];botPlayers=[]; const formation=[[0,9],[-5,4],[5,4]]; selected().forEach((d,i)=>{const p=makePlayer(d,0,i);p.position.set(formation[i][0],0,formation[i][1]);p.userData.home.copy(p.position);players.push(p);}); const bot=['glimmer','bricko','bloop'].map(recruit); bot.forEach((d,i)=>{const p=makePlayer(d,1,i);p.position.set(-formation[i][0],0,-formation[i][1]);p.userData.home.copy(p.position);botPlayers.push(p);}); state.active=0; updateMatchHUD(); }
-function beginMatch(){ state.playing=true;state.score=[0,0];state.time=150;ball.position.set(0,.5,0);ballVelocity.set(0,0,0);resetTeams(); show('match-screen'); $('goal-banner').classList.add('hidden'); audio.playSFX(ASSETS.whistle); audio.playBGM(ASSETS.bgm); toast('Kick off! First to 3 wins.'); }
+function beginMatch(){ if(!renderer||!matchRoot||!ball){toast('Der 3D-Spielmodus ist in diesem Browser nicht verfügbar.');return;} state.playing=true;state.score=[0,0];state.time=150;ball.position.set(0,.5,0);ballVelocity.set(0,0,0);resetTeams(); show('match-screen'); $('goal-banner').classList.add('hidden'); audio.playSFX(ASSETS.whistle); audio.playBGM(ASSETS.bgm); toast('Kick off! First to 3 wins.'); }
 function endMatch(){ state.playing=false; const won=state.score[0]>state.score[1]; const draw=state.score[0]===state.score[1]; const live=isLive();const mult=live?2:1;const boostMult=Date.now()<parseInt(localStorage.getItem('admin-boost-until')||'0')?5:1;const reward=(draw?28:won?52:22)*mult*boostMult; state.profile.coins+=reward; if(won)state.profile.wins++; else if(!draw)state.profile.losses++; saveProfile(); audio.playSFX(ASSETS.coin); $('result-kicker').textContent=draw?'MATCH DRAWN':won?'MATCH COMPLETE':'KEEP BUILDING'; $('result-title').textContent=draw?'A CLOSE DRAW!':won?'YOU WIN!':'THE RIVALS TAKE IT'; $('result-score').textContent=`${state.score[0]} — ${state.score[1]}`; $('reward-coins').textContent=`+${reward} COINS${live?' (2× EVENT BONUS)':''}`; $('reward-detail').textContent=live?'Double coins — Event is live!':won?'Victory bonus included':'Every match moves you toward an egg'; show('result-screen'); }
 function updateMatchHUD(){ const active=players[state.active]; $('blue-score').textContent=state.score[0];$('red-score').textContent=state.score[1]; $('match-timer').textContent=`${Math.floor(state.time/60)}:${String(Math.ceil(state.time%60)).padStart(2,'0')}`; if(active){$('active-name').textContent=active.userData.data.name.toUpperCase();$('active-role').textContent=active.userData.data.role;} }
 
@@ -80,7 +90,57 @@ function resize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMa
 function renderClub(){ $('coin-count').textContent=state.profile.coins; $('collection-count').textContent=`${state.profile.roster.length} recruit${state.profile.roster.length===1?'':'s'}`; const slots=$('lineup-slots');slots.innerHTML='';selected().forEach((r,i)=>{const b=document.createElement('button');b.className='lineup-card active';b.innerHTML=`<b>${i===0?'★ ':''}${r.name}</b><small>${r.role}</small><small class="rarity">${r.rarity}</small>`;b.onclick=()=>toast(i===0?`${r.name} is your captain.`:'Choose a recruit below to replace this slot.');slots.append(b);}); const synergy=selected().map(x=>x.role).filter((v,i,a)=>a.indexOf(v)===i).length===3?'Perfect trio: Striker + Midfielder + Defender = +10% team balance.':'Try one of each role for a balanced trio.';$('team-bonus').textContent=synergy;
  const list=$('collection');list.innerHTML='';state.profile.roster.map(recruit).filter(Boolean).forEach(r=>{const b=document.createElement('button');b.className=`collection-card ${state.profile.lineup.includes(r.id)?'selected':''}`;b.innerHTML=`<b style="color:#${r.color.toString(16).padStart(6,'0')}">${r.name}</b><small>${r.rarity} • ${r.role}</small><div class="statline">PACE ${r.pace} • POWER ${r.power} • FLAIR ${r.flair}</div>`;b.onclick=()=>toggleLineup(r.id);list.append(b);}); if(isLive()){$('hatch-button').textContent='🔴 2× LUCK — HATCH STICKER EGG — 70';$('legendary-hatch-button').textContent='🔴 2× LUCK — HATCH LEGENDARY EGG — 900';}else{$('hatch-button').textContent='HATCH STICKER EGG — 70';$('legendary-hatch-button').textContent='HATCH LEGENDARY EGG — 900';} }
 function toggleLineup(id){const line=state.profile.lineup;if(line.includes(id)){if(line.length<=1)return toast('Keep at least one Brainrot selected.');state.profile.lineup=line.filter(x=>x!==id);}else if(line.length<3)state.profile.lineup=[...line,id];else{state.profile.lineup=[line[1],line[2],id];toast('Replaced your oldest starter.');}saveProfile();}
-function hatch(type='sticker'){const legendary=type==='legendary';const cost=legendary?900:70;if(state.profile.coins<cost)return toast('Win or play another match for more coins.');state.profile.coins-=cost;const roll=Math.random();let pool;const lv=isLive();if(legendary){pool=roll<(lv?.0025:.005)?RECRUITS.filter(x=>x.rarity==='OG'):roll<(lv?.06:.03)?RECRUITS.filter(x=>x.rarity==='LEGENDARY'):roll<(lv?.24:.12)?RECRUITS.filter(x=>x.rarity==='EPIC'):roll<(lv?.66:.33)?RECRUITS.filter(x=>x.rarity==='RARE'):RECRUITS.filter(x=>x.rarity==='COMMON');}else{pool=roll<(lv?.004:.002)?RECRUITS.filter(x=>x.rarity==='LEGENDARY'):roll<(lv?.024:.012)?RECRUITS.filter(x=>x.rarity==='EPIC'):roll<(lv?.14:.07)?RECRUITS.filter(x=>x.rarity==='RARE'):RECRUITS.filter(x=>x.rarity==='COMMON');}const r=pool[Math.floor(Math.random()*pool.length)];const duplicate=state.profile.roster.includes(r.id);if(!duplicate)state.profile.roster.push(r.id);else state.profile.coins+=legendary?250:22;saveProfile();audio.playSFX(ASSETS.hatch);$('hatch-reveal').textContent=duplicate?'✦':r.name[0];$('hatch-name').textContent=duplicate?`${r.name} DUPLICATE!`:r.name.toUpperCase();$('hatch-details').textContent=`${r.rarity} • ${r.role}`;$('hatch-trait').textContent=duplicate?`Duplicate converted into ${legendary?250:22} bonus coins.`:r.trait;$('hatch-modal').classList.remove('hidden');}
+ function hatch(type='sticker'){
+   const luckUntil=parseInt(localStorage.getItem(LUCK_BOOST_KEY)||'0');
+   const luckMult=Date.now()<luckUntil?Math.max(1,parseInt(localStorage.getItem('luck-boost-mult')||'1')):1;
+   const legendary=type==='legendary';
+   const cost=legendary?900:70;
+   if(state.profile.coins<cost)return toast('Win or play another match for more coins.');
+
+   const roll=Math.random();
+   const lv=isLive();
+   let pool;
+   if(legendary){
+     const ogChance=Math.min(1,(lv?.0025:.005)*luckMult);
+     const legendaryChance=Math.min(1,ogChance+(lv?.06:.03)*luckMult);
+     const epicChance=Math.min(1,legendaryChance+(lv?.24:.12)*luckMult);
+     const rareChance=Math.min(1,epicChance+(lv?.66:.33)*luckMult);
+     pool=roll<ogChance?RECRUITS.filter(x=>x.rarity==='OG')
+       :roll<legendaryChance?RECRUITS.filter(x=>x.rarity==='LEGENDARY')
+       :roll<epicChance?RECRUITS.filter(x=>x.rarity==='EPIC')
+       :roll<rareChance?RECRUITS.filter(x=>x.rarity==='RARE')
+       :RECRUITS.filter(x=>x.rarity==='COMMON');
+   }else{
+     const legendaryChance=Math.min(1,(lv?.004:.002)*luckMult);
+     const epicChance=Math.min(1,legendaryChance+(lv?.024:.012)*luckMult);
+     const rareChance=Math.min(1,epicChance+(lv?.14:.07)*luckMult);
+     pool=roll<legendaryChance?RECRUITS.filter(x=>x.rarity==='LEGENDARY')
+       :roll<epicChance?RECRUITS.filter(x=>x.rarity==='EPIC')
+       :roll<rareChance?RECRUITS.filter(x=>x.rarity==='RARE')
+       :RECRUITS.filter(x=>x.rarity==='COMMON');
+   }
+
+   if(!pool.length){
+     toast('Kein Brainrot verfügbar — keine Coins abgezogen.');
+     return;
+   }
+   const r=pool[Math.floor(Math.random()*pool.length)];
+   if(!r){
+     toast('Hatching fehlgeschlagen — keine Coins abgezogen.');
+     return;
+   }
+   state.profile.coins-=cost;
+   const duplicate=state.profile.roster.includes(r.id);
+   if(!duplicate)state.profile.roster.push(r.id);
+   else state.profile.coins+=legendary?250:22;
+   saveProfile();
+   audio.playSFX(ASSETS.hatch);
+   $('hatch-reveal').textContent=duplicate?'✦':r.name[0];
+   $('hatch-name').textContent=duplicate?`${r.name} DUPLICATE!`:r.name.toUpperCase();
+   $('hatch-details').textContent=`${r.rarity} • ${r.role}`;
+   $('hatch-trait').textContent=duplicate?`Duplicate converted into ${legendary?250:22} bonus coins.`:r.trait;
+   $('hatch-modal').classList.remove('hidden');
+ }
 function createRoom(){const code=Math.random().toString(36).slice(2,7).toUpperCase();state.room=code;$('room-code').value=code;$('online-status').textContent=`Room ${code} created. Share the code with a friend. This playable build launches a bot stand-in if no second player is connected.`;toast(`Room ${code} created`);}function joinRoom(){const code=$('room-code').value.trim().toUpperCase();if(!code)return toast('Enter a five-character room code.');state.room=code;$('online-status').textContent=`Joined room ${code}. Waiting for host sync; launching a local rival for this build.`;toast(`Joined ${code}`);}
 function getEventState(){const LIVE=15*60*1000;const now=new Date();const day=now.getDay();const days=(day-4+7)%7;const last=new Date(now);last.setDate(now.getDate()-days);last.setHours(16,30,0,0);if(last>now)last.setDate(last.getDate()-7);const since=now-last;if(since<LIVE)return{live:true,remaining:LIVE-since};const next=new Date(last);next.setDate(last.getDate()+7);return{live:false,msUntil:next-now};}
 function isLive(){return getEventState().live;}
@@ -141,6 +201,7 @@ if(pollCloseBtn){
   const ADMIN_PW = 'green1601mybest';
   const BOOST_KEY = 'admin-boost-until';
 
+let luckBoostMultiplier = 1;
   function checkBoost() {
     if (!boostStatus) return;
 
@@ -158,8 +219,100 @@ if(pollCloseBtn){
   checkBoost();
 
   window.__boostActive = () =>
-    Date.now() < parseInt(localStorage.getItem(BOOST_KEY) || '0');
+    Date.now() < parseInt(localStorage.getItem(BOOST_KEY) || '0'); function activateLuckBoost(mult){
+  localStorage.setItem('luck-boost-until', String(Date.now()+120000));
+  localStorage.setItem('luck-boost-mult', String(mult));
+  }
+const luck6Btn=document.getElementById('luck-6-btn');
+const luck8Btn=document.getElementById('luck-8-btn');
+const codeCreateInput=document.getElementById('code-create-input');
+const codeLimitInput=document.getElementById('code-limit-input');
+const codeCreateBtn=document.getElementById('code-create-btn');
+const codeAdminStatus=document.getElementById('code-admin-status'); if(codeCreateBtn)codeCreateBtn.onclick=()=>{
+  if(pwInput.value.trim()!==ADMIN_PW){
+    codeAdminStatus.textContent='❌ Falsches Passwort.';
+    return;
+  }
 
+  const code=codeCreateInput.value.trim();
+  const limit=parseInt(codeLimitInput.value);
+
+  if(!code||!limit||limit<1){
+    codeAdminStatus.textContent='❌ Code und Limit eingeben.';
+    return;
+  }
+
+  const codes=JSON.parse(localStorage.getItem('redeem-codes')||'{}');
+
+  codes[code]={
+    limit:limit,
+    used:0
+  };
+
+  localStorage.setItem('redeem-codes',JSON.stringify(codes));
+
+  codeAdminStatus.textContent=`✅ ${code} erstellt — ${limit} Einlösungen`;
+  codeCreateInput.value='';
+  codeLimitInput.value='';
+}; 
+
+  if(codeCreateBtn)codeCreateBtn.onclick=async()=>{
+  if(pwInput.value.trim()!==ADMIN_PW){
+    codeAdminStatus.textContent='❌ Falsches Passwort.';
+    return;
+  }
+
+  const code=codeCreateInput.value.trim();
+  const limit=parseInt(codeLimitInput.value);
+
+  if(!code||!limit||limit<1){
+    codeAdminStatus.textContent='❌ Code und Limit eingeben.';
+    return;
+  }
+
+  const codes=JSON.parse(localStorage.getItem('redeem-codes')||'{}');
+
+codes[code]={
+  limit:limit,
+  used:0
+};
+
+localStorage.setItem('redeem-codes',JSON.stringify(codes));
+
+codeAdminStatus.textContent=`✅ ${code} erstellt — ${limit} Einlösungen`;
+codeCreateInput.value='';
+codeLimitInput.value='';
+};
+if(luck6Btn)luck6Btn.onclick=()=>{
+  if(pwInput.value.trim()!==ADMIN_PW){
+    statusEl.textContent='❌ Falsches Passwort.';
+    return;
+  }
+  activateLuckBoost(6);
+};
+
+if(luck8Btn)luck8Btn.onclick=()=>{
+  if(pwInput.value.trim()!==ADMIN_PW){
+    statusEl.textContent='❌ Falsches Passwort.';
+    return;
+  }
+  activateLuckBoost(8);
+};
+  setInterval(()=>{
+  const until=parseInt(localStorage.getItem('luck-boost-until')||'0');
+  const mult=parseInt(localStorage.getItem('luck-boost-mult')||'1');
+
+  if(Date.now()<until){
+    const rem=Math.ceil((until-Date.now())/1000);
+    const time=`${Math.floor(rem/60)}:${String(rem%60).padStart(2,'0')}`;
+
+    if(luck6Btn)luck6Btn.textContent=mult===6?`6× Luck — ${time}`:'6× Luck';
+    if(luck8Btn)luck8Btn.textContent=mult===8?`8× Luck — ${time}`:'8× Luck';
+  }else{
+    if(luck6Btn)luck6Btn.textContent='6× Luck';
+    if(luck8Btn)luck8Btn.textContent='8× Luck';
+  }
+},1000);
   if (boostBtn) {
     boostBtn.onclick = async () => {
       if (pwInput.value.trim() !== ADMIN_PW) {
@@ -348,9 +501,87 @@ if(pollCloseBtn){
       }
     };
   }
-}function bindUI(){ $('start-button').onclick=()=>{show('club-screen');renderClub();audio.playBGM(ASSETS.bgm);} ;const eventAreaBtn=document.getElementById('event-area-btn');const eventAreaPanel=document.getElementById('event-area-panel');const eventAreaClose=document.getElementById('event-area-close');if(eventAreaBtn&&eventAreaPanel)eventAreaBtn.onclick=()=>eventAreaPanel.classList.remove('hidden');if(eventAreaClose&&eventAreaPanel)eventAreaClose.onclick=()=>eventAreaPanel.classList.add('hidden');$('play-bot').onclick=beginMatch;$('create-room').onclick=createRoom;$('join-room').onclick=joinRoom;$('hatch-button').onclick=()=>hatch('sticker');$('legendary-hatch-button').onclick=()=>hatch('legendary');startCountdown();$('close-hatch').onclick=()=>$('hatch-modal').classList.add('hidden');$('back-club').onclick=()=>{show('club-screen');renderClub();};$('exit-match').onclick=()=>{state.playing=false;show('club-screen');renderClub();};addEventListener('keydown',e=>{if(['Space','KeyQ'].includes(e.code))e.preventDefault();keys.add(e.code);});addEventListener('keyup',e=>keys.delete(e.code)); initTouch(); pollBroadcast();
-initAdminPanel(); }
+}function bindUI(){ $('start-button').onclick=()=>{show('club-screen');renderClub();audio.playBGM(ASSETS.bgm);} ;const eventAreaBtn=document.getElementById('event-area-btn');const eventAreaPanel=document.getElementById('event-area-panel');const eventAreaClose=document.getElementById('event-area-close');if(eventAreaBtn&&eventAreaPanel){
+  eventAreaBtn.onclick=()=>{
+    eventAreaPanel.classList.remove('hidden');
+    initEventTeaser();
+  };
+};if(eventAreaClose&&eventAreaPanel)eventAreaClose.onclick=()=>eventAreaPanel.classList.add('hidden');$('play-bot').onclick=beginMatch;$('create-room').onclick=createRoom;$('join-room').onclick=joinRoom;$('hatch-button').onclick=()=>hatch('sticker');$('legendary-hatch-button').onclick=()=>hatch('legendary');startCountdown();$('close-hatch').onclick=()=>$('hatch-modal').classList.add('hidden');$('back-club').onclick=()=>{show('club-screen');renderClub();};$('exit-match').onclick=()=>{state.playing=false;show('club-screen');renderClub();};addEventListener('keydown',e=>{if(['Space','KeyQ'].includes(e.code))e.preventDefault();keys.add(e.code);});addEventListener('keyup',e=>keys.delete(e.code)); initTouch(); pollBroadcast();
+ const redeemCodeInput=document.getElementById('redeem-code-input');
+ const redeemCodeBtn=document.getElementById('redeem-code-btn');
+ const redeemCodeStatus=document.getElementById('redeem-code-status');
+ if(redeemCodeBtn&&redeemCodeInput&&redeemCodeStatus)redeemCodeBtn.onclick=()=>{
+   const enteredCode=redeemCodeInput.value.trim().toUpperCase();
+   const storedCodes=JSON.parse(localStorage.getItem('redeem-codes')||'{}');
+   const storedKey=Object.keys(storedCodes).find(key=>key.trim().toUpperCase()===enteredCode);
+   const redeemData=storedKey?storedCodes[storedKey]:null;
 
+   if(!enteredCode||!redeemData){
+     redeemCodeStatus.textContent='❌ Code ungültig.';
+     return;
+   }
+   if(Number(redeemData.used||0)>=Number(redeemData.limit||0)){
+     redeemCodeStatus.textContent='❌ Dieser Code ist aufgebraucht.';
+     return;
+   }
+
+   state.profile.coins+=1000;
+   redeemData.used=Number(redeemData.used||0)+1;
+   storedCodes[storedKey]=redeemData;
+   localStorage.setItem('redeem-codes',JSON.stringify(storedCodes));
+   saveProfile();
+   redeemCodeStatus.textContent='✅ 1.000 Coins erhalten!';
+   redeemCodeInput.value='';
+ };
+
+  
+initAdminPanel(); }
+function initEventTeaser(){
+  const panel=document.getElementById('event-area-panel');
+  if(!panel||panel.dataset.teaserReady==='1')return;
+  panel.dataset.teaserReady='1';
+
+  const title=panel.querySelector('h2');
+  const oldP=panel.querySelector('p');
+  const oldSmall=panel.querySelector('small');
+
+  if(title)title.textContent='🎪 EVENT AREA';
+  if(oldP)oldP.remove();
+  if(oldSmall)oldSmall.remove();
+
+  const teaser=document.createElement('div');
+  teaser.innerHTML=`
+    <p style="font-weight:900;font-size:18px;margin:8px 0 10px;">🔒 NEXT EVENT — COMING SOON</p>
+    <p id="next-event-countdown" style="font-weight:900;margin:8px 0;"></p>
+    <div style="margin-top:18px;padding:14px;border:1px solid rgba(255,255,255,.14);border-radius:14px;background:rgba(255,255,255,.05);">
+      <b>🤫 SECRET HINT</b>
+      <p style="margin:8px 0 0;opacity:.8;">Nicht jedes Match wird für immer auf demselben Platz gespielt...</p>
+    </div>
+  `;
+  panel.appendChild(teaser);
+
+  const el=document.getElementById('next-event-countdown');
+  const end=new Date('2026-10-08T16:30:00');
+
+  function tick(){
+    const diff=end-new Date();
+
+    if(diff<=0){
+      el.textContent='🔥 EVENT IST LIVE!';
+      return;
+    }
+
+    const d=Math.floor(diff/86400000);
+    const h=Math.floor((diff%86400000)/3600000);
+    const m=Math.floor((diff%3600000)/60000);
+    const s=Math.floor((diff%60000)/1000);
+
+    el.textContent=`Start in ${d}T ${h}Std ${m}Min ${s}Sek`;
+  }
+
+  tick();
+  setInterval(tick,1000);
+}
 function initDailyWheel(){
   const openBtn=document.getElementById('wheel-open-btn');
   const panel=document.getElementById('wheel-panel');

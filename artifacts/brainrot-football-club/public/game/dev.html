@@ -116,7 +116,28 @@
           <button id="admin-clear-btn">LÖSCHEN</button>
         </div>
         <div id="admin-status"></div>
-       <div class="admin-row"> <button id="admin-boost-btn">5× COINS (3 Min)</button> <button id="admin-dist-btn">200 COINS AN ALLE</button> </div> <div id="admin-boost-status"></div> <hr style="border-color:#444;margin:10px 0;"><h4 style="color:#f0c040;margin:6px 0;">📊 UMFRAGE</h4><input id="poll-question-input" type="text" placeholder="Frage…" /><input id="poll-option-a" type="text" placeholder="Antwort A…" /><input id="poll-option-b" type="text" placeholder="Antwort B…" /><div class="admin-row"><button id="poll-start-btn">UMFRAGE STARTEN</button><button id="poll-stop-btn">STOPPEN</button></div><div id="poll-admin-status"></div>
+       <div class="admin-row"> <button id="admin-boost-btn">5× COINS (3 Min)</button> <button id="admin-dist-btn">200 COINS AN ALLE</button> </div> <div class="admin-row">
+  <button id="luck-6-btn">6× LUCK (2 Min)</button>
+  <button id="luck-8-btn">8× LUCK (2 Min)</button> <div class="admin-row">
+  <input id="code-create-input" type="text" placeholder="Code z.B. 1a2b3c">
+  <input id="code-limit-input" type="number" min="1" placeholder="Max. Einlösungen">
+  <button id="code-create-btn">CODE ERSTELLEN</button>
+</div>
+<style>
+#code-create-input,
+#code-limit-input,
+#code-create-btn{
+  max-width:100%;
+  box-sizing:border-box;
+}
+
+#code-create-input,
+#code-limit-input{
+  width:100%;
+}
+</style>
+<div id="code-admin-status"></div>
+       </div> <div id="admin-boost-status"></div> <hr style="border-color:#444;margin:10px 0;"><h4 style="color:#f0c040;margin:6px 0;">📊 UMFRAGE</h4><input id="poll-question-input" type="text" placeholder="Frage…" /><input id="poll-option-a" type="text" placeholder="Antwort A…" /><input id="poll-option-b" type="text" placeholder="Antwort B…" /><div class="admin-row"><button id="poll-start-btn">UMFRAGE STARTEN</button><button id="poll-stop-btn">STOPPEN</button></div><div id="poll-admin-status"></div>
       </div>
     </div>
   </main>

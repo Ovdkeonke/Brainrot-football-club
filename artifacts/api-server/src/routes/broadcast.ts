@@ -2,6 +2,11 @@ import { Router } from "express";
 
 const router = Router();
 
+router.use((_req, res, next) => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+  next();
+});
+
 // In-memory store — resets on server restart, simple and sufficient
 let broadcast: { message: string; active: boolean; timestamp: number } | null = null;
 
