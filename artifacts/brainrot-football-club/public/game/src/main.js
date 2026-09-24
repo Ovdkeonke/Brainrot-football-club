@@ -10,6 +10,16 @@ const screens = ['loading-screen','club-screen','match-screen','result-screen'];
 const GAME_ID = 'brainrot-football-club';
 const PLATFORM_USER_ID = '00000001';
 const localKey = `game-data:${PLATFORM_USER_ID}:${GAME_ID}:${window.__devMode ? 'profile-dev' : 'profile'}`;
+function getPlayerClientId(){
+  const key=`${GAME_ID}:player-client-id`;
+  let id=localStorage.getItem(key);
+  if(!id){
+    id=globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(key,id);
+  }
+  return id;
+}
+const PLAYER_CLIENT_ID=getPlayerClientId();
 const report = new Map(Object.entries(ASSETS).map(([key,url]) => [url,{ entity:key,status:'PENDING',boundTo:'—' }]));
 const state = { profile: loadProfile(), playing:false, score:[0,0], time:150, active:0, lastShot:0, room:null };
 let scene, camera, renderer, clock, audio, ball, ballVelocity = new THREE.Vector3(), players = [], botPlayers = [], obstacles = [], mascotTemplate, goalTemplate, ballTemplate, eggTemplate, matchRoot, pitch, goalBannerTimer = 0;
@@ -163,7 +173,7 @@ function startCountdown(){
   }
   tick();setInterval(tick,1000);
 }
-function pollBroadcast(){ async function check(){ try{ const r=await fetch('/api/broadcast'); if(!r.ok)return; const data=await r.json(); const el=document.getElementById('broadcast-ticker'); const txt=document.getElementById('broadcast-text'); if(data.active&&data.message){if(el)el.classList.remove('hidden');if(txt)txt.textContent=data.message;} else{if(el)el.classList.add('hidden');} const boost=await fetch('/api/boost'); const bd=await boost.json(); if(bd.active){localStorage.setItem('admin-boost-until',String(bd.until));}else{localStorage.removeItem('admin-boost-until');} const coins=await fetch('/api/coins'); const cd=await coins.json(); if(cd.grant>0){state.profile.coins+=cd.grant;saveProfile();toast('+200 COINS vom Admin!');} }catch{} } const pollEl=document.getElementById('poll-popup'); const pollQ=document.getElementById('poll-question'); const pollBtnA=document.getElementById('poll-btn-a'); const pollBtnB=document.getElementById('poll-btn-b'); const pollResult=document.getElementById('poll-result');const pollCloseBtn=document.getElementById('poll-close-btn');
+ function pollBroadcast(){ let coinsPollRunning=false; async function check(){ try{ const r=await fetch('/api/broadcast'); if(!r.ok)return; const data=await r.json(); const el=document.getElementById('broadcast-ticker'); const txt=document.getElementById('broadcast-text'); if(data.active&&data.message){if(el)el.classList.remove('hidden');if(txt)txt.textContent=data.message;} else{if(el)el.classList.add('hidden');} const boost=await fetch('/api/boost'); const bd=await boost.json(); if(bd.active){localStorage.setItem('admin-boost-until',String(bd.until));}else{localStorage.removeItem('admin-boost-until');} if(!coinsPollRunning){coinsPollRunning=true;try{const coins=await fetch(`/api/coins?clientId=${encodeURIComponent(PLAYER_CLIENT_ID)}`);if(coins.ok){const cd=await coins.json();if(cd.grant>0){state.profile.coins+=cd.grant;saveProfile();toast(`+${cd.grant} COINS vom Admin!`);}}}finally{coinsPollRunning=false;}} }catch{} } const pollEl=document.getElementById('poll-popup'); const pollQ=document.getElementById('poll-question'); const pollBtnA=document.getElementById('poll-btn-a'); const pollBtnB=document.getElementById('poll-btn-b'); const pollResult=document.getElementById('poll-result');const pollCloseBtn=document.getElementById('poll-close-btn');
 if(pollCloseBtn){
   pollCloseBtn.onclick=()=>document.getElementById('poll-popup').classList.add('hidden');
 } 
@@ -228,7 +238,8 @@ const luck8Btn=document.getElementById('luck-8-btn');
 const codeCreateInput=document.getElementById('code-create-input');
 const codeLimitInput=document.getElementById('code-limit-input');
 const codeCreateBtn=document.getElementById('code-create-btn');
-const codeAdminStatus=document.getElementById('code-admin-status'); if(codeCreateBtn)codeCreateBtn.onclick=()=>{
+const codeAdminStatus=document.getElementById('code-admin-status');
+if(codeCreateBtn)codeCreateBtn.onclick=async()=>{
   if(pwInput.value.trim()!==ADMIN_PW){
     codeAdminStatus.textContent='❌ Falsches Passwort.';
     return;
@@ -242,46 +253,34 @@ const codeAdminStatus=document.getElementById('code-admin-status'); if(codeCreat
     return;
   }
 
-  const codes=JSON.parse(localStorage.getItem('redeem-codes')||'{}');
-
-  codes[code]={
-    limit:limit,
-    used:0
-  };
-
-  localStorage.setItem('redeem-codes',JSON.stringify(codes));
-
-  codeAdminStatus.textContent=`✅ ${code} erstellt — ${limit} Einlösungen`;
-  codeCreateInput.value='';
-  codeLimitInput.value='';
-}; 
-
-  if(codeCreateBtn)codeCreateBtn.onclick=async()=>{
-  if(pwInput.value.trim()!==ADMIN_PW){
-    codeAdminStatus.textContent='❌ Falsches Passwort.';
-    return;
+  codeAdminStatus.textContent='⏳ Code wird für alle Spieler gespeichert …';
+  codeCreateBtn.disabled=true;
+  try{
+    const legacyCodes=JSON.parse(localStorage.getItem('redeem-codes')||'{}');
+    if(legacyCodes&&typeof legacyCodes==='object'&&!Array.isArray(legacyCodes)){
+      const importResponse=await fetch('/api/codes/import',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({secret:pwInput.value.trim(),codes:legacyCodes})
+      });
+      const importResult=await importResponse.json();
+      if(!importResponse.ok)throw new Error(importResult.error||'Alte Codes konnten nicht übernommen werden.');
+    }
+    const response=await fetch('/api/codes',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({secret:pwInput.value.trim(),code,limit})
+    });
+    const result=await response.json();
+    if(!response.ok)throw new Error(result.error||'Code konnte nicht erstellt werden.');
+    codeAdminStatus.textContent=`✅ ${result.code} erstellt — ${result.limit} Einlösungen für alle Spieler`;
+    codeCreateInput.value='';
+    codeLimitInput.value='';
+  }catch(error){
+    codeAdminStatus.textContent=`❌ ${error.message}`;
+  }finally{
+    codeCreateBtn.disabled=false;
   }
-
-  const code=codeCreateInput.value.trim();
-  const limit=parseInt(codeLimitInput.value);
-
-  if(!code||!limit||limit<1){
-    codeAdminStatus.textContent='❌ Code und Limit eingeben.';
-    return;
-  }
-
-  const codes=JSON.parse(localStorage.getItem('redeem-codes')||'{}');
-
-codes[code]={
-  limit:limit,
-  used:0
-};
-
-localStorage.setItem('redeem-codes',JSON.stringify(codes));
-
-codeAdminStatus.textContent=`✅ ${code} erstellt — ${limit} Einlösungen`;
-codeCreateInput.value='';
-codeLimitInput.value='';
 };
 if(luck6Btn)luck6Btn.onclick=()=>{
   if(pwInput.value.trim()!==ADMIN_PW){
@@ -367,7 +366,9 @@ if(luck8Btn)luck8Btn.onclick=()=>{
         const d = await res.json();
 
         statusEl.textContent = d.ok
-          ? '✅ 200 Coins an alle gesendet!'
+          ? d.recipients>0
+            ? `✅ 200 Coins an ${d.recipients} aktive Spieler gesendet!`
+            : '⚠️ Keine Spieler aktiv verbunden. Bitte erneut versuchen, wenn sie im Spiel sind.'
           : '❌ ' + d.error;
       } catch (e) {
         statusEl.textContent = '❌ Fehler: ' + e.message;
@@ -510,28 +511,31 @@ if(luck8Btn)luck8Btn.onclick=()=>{
  const redeemCodeInput=document.getElementById('redeem-code-input');
  const redeemCodeBtn=document.getElementById('redeem-code-btn');
  const redeemCodeStatus=document.getElementById('redeem-code-status');
- if(redeemCodeBtn&&redeemCodeInput&&redeemCodeStatus)redeemCodeBtn.onclick=()=>{
-   const enteredCode=redeemCodeInput.value.trim().toUpperCase();
-   const storedCodes=JSON.parse(localStorage.getItem('redeem-codes')||'{}');
-   const storedKey=Object.keys(storedCodes).find(key=>key.trim().toUpperCase()===enteredCode);
-   const redeemData=storedKey?storedCodes[storedKey]:null;
-
-   if(!enteredCode||!redeemData){
-     redeemCodeStatus.textContent='❌ Code ungültig.';
+ if(redeemCodeBtn&&redeemCodeInput&&redeemCodeStatus)redeemCodeBtn.onclick=async()=>{
+   const code=redeemCodeInput.value.trim();
+   if(!code){
+     redeemCodeStatus.textContent='❌ Bitte einen Code eingeben.';
      return;
    }
-   if(Number(redeemData.used||0)>=Number(redeemData.limit||0)){
-     redeemCodeStatus.textContent='❌ Dieser Code ist aufgebraucht.';
-     return;
+   redeemCodeBtn.disabled=true;
+   redeemCodeStatus.textContent='⏳ Code wird geprüft …';
+   try{
+     const response=await fetch('/api/redeem',{
+       method:'POST',
+       headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({code})
+     });
+     const result=await response.json();
+     if(!response.ok)throw new Error(result.error||'Code konnte nicht eingelöst werden.');
+     state.profile.coins+=Number(result.coins)||1000;
+     saveProfile();
+     redeemCodeStatus.textContent='✅ 1.000 Coins erhalten!';
+     redeemCodeInput.value='';
+   }catch(error){
+     redeemCodeStatus.textContent=`❌ ${error.message}`;
+   }finally{
+     redeemCodeBtn.disabled=false;
    }
-
-   state.profile.coins+=1000;
-   redeemData.used=Number(redeemData.used||0)+1;
-   storedCodes[storedKey]=redeemData;
-   localStorage.setItem('redeem-codes',JSON.stringify(storedCodes));
-   saveProfile();
-   redeemCodeStatus.textContent='✅ 1.000 Coins erhalten!';
-   redeemCodeInput.value='';
  };
 
   
