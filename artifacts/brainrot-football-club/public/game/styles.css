@@ -291,3 +291,108 @@
   font-size: 22px;
   cursor: pointer;
 }
+
+.event-arena-screen {
+  z-index: 900;
+  justify-content: flex-start;
+  padding-top: clamp(24px, 6vh, 56px);
+  background: linear-gradient(180deg,rgba(8,19,38,.2),rgba(8,19,38,.05) 55%,rgba(8,19,38,.35));
+  pointer-events: none;
+}
+
+.event-arena-card {
+  width: min(440px, 92vw);
+  padding: 20px;
+  border: 1px solid #ffffff40;
+  border-radius: 20px;
+  background: #081326d9;
+  box-shadow: 0 12px 36px #0008;
+  text-align: center;
+  pointer-events: auto;
+}
+
+.event-arena-card h2 {
+  color: var(--gold);
+}
+
+.event-arena-card p:not(.eyebrow) {
+  margin: 10px 0 18px;
+  color: #d7e4f8;
+}
+
+.event-arena-card button {
+  width: 100%;
+}
+
+.api-connection-status {
+  position: fixed;
+  z-index: 11000;
+  top: 58px;
+  left: 50%;
+  width: min(520px, calc(100vw - 24px));
+  transform: translateX(-50%);
+  padding: 10px 14px;
+  border: 1px solid #ff8a8a;
+  border-radius: 12px;
+  background: #7a1e2beF;
+  color: #fff;
+  box-shadow: 0 8px 28px #0008;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.4;
+  text-align: center;
+  pointer-events: none;
+}
+
+#admin-panel {
+  max-height: calc(100vh - 150px);
+  overflow-y: auto;
+}
+
+.code-admin-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+#admin-panel .code-admin-row input {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px;
+  border: 1px solid #7c3aed;
+  border-radius: 8px;
+  background: #1a0a4a;
+  color: #fff;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+#admin-panel #code-create-btn {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px;
+  border-radius: 8px;
+  background: #7c3aed;
+  color: #fff;
+  font-size: 12px;
+}
+
+#code-admin-status {
+  min-width: 0;
+  min-height: 1.5em;
+  padding: 4px 2px;
+  color: #e4d5ff;
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: left;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 380px) {
+  .code-admin-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

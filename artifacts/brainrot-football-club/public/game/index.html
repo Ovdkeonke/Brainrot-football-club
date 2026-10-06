@@ -24,15 +24,25 @@
         <h1>BRAINROT<br><span>FOOTBALL CLUB</span></h1>
         <div class="loading-track"><i id="loading-bar"></i></div>
         <p id="loading-text">Warming up the mascots…</p>
-        <button id="start-button" class="primary hidden">ENTER THE STADIUM</button> <button id="event-area-btn" class="event-area-btn">🎪 EVENT AREA</button>
-
-<div id="event-area-panel" class="event-area-panel hidden">
-  <button id="event-area-close">✕</button>
-  <h2>🎪 EVENT AREA</h2>
-  <p>NO EVENT ACTIVE</p>
-  <small>Coming soon...</small>
-</div>
+        <button id="start-button" class="primary hidden">ENTER THE STADIUM</button>
+        <button id="retry-load-button" class="secondary hidden">ERNEUT VERBINDEN</button>
         <div id="event-countdown"></div>
+      </section>
+
+      <button id="event-area-btn" class="event-area-btn">🎪 EVENT ARENA</button>
+      <div id="event-area-panel" class="event-area-panel hidden">
+        <button id="event-area-close" aria-label="Event-Bereich schließen">✕</button>
+        <h2>🎪 EVENT ARENA</h2>
+        <p>NO EVENT ACTIVE</p>
+        <small>Coming soon...</small>
+      </div>
+      <section id="event-arena-screen" class="screen event-arena-screen hidden">
+        <div class="event-arena-card">
+          <p class="eyebrow">BRAINROT FOOTBALL CLUB</p>
+          <h2>🎪 EVENT ARENA</h2>
+          <p>Du bist in der Event Arena.</p>
+          <button id="event-arena-back" class="primary">ZURÜCK ZUM CLUB</button>
+        </div>
       </section>
 
       <section id="club-screen" class="screen hidden">

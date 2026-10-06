@@ -6,7 +6,7 @@ import { ASSETS, FACING, RECRUITS, DEFAULT_PROFILE } from './config.js';
 import AudioManager from './audio-manager.js';
 
 const $ = (id) => document.getElementById(id);
-const screens = ['loading-screen','club-screen','match-screen','result-screen'];
+const screens = ['loading-screen','club-screen','match-screen','result-screen','event-arena-screen'];
 const GAME_ID = 'brainrot-football-club';
 const PLATFORM_USER_ID = '00000001';
 const localKey = `game-data:${PLATFORM_USER_ID}:${GAME_ID}:${window.__devMode ? 'profile-dev' : 'profile'}`;
@@ -22,7 +22,7 @@ function getPlayerClientId(){
 const PLAYER_CLIENT_ID=getPlayerClientId();
 const report = new Map(Object.entries(ASSETS).map(([key,url]) => [url,{ entity:key,status:'PENDING',boundTo:'—' }]));
 const state = { profile: loadProfile(), playing:false, score:[0,0], time:150, active:0, lastShot:0, room:null };
-let scene, camera, renderer, clock, audio, ball, ballVelocity = new THREE.Vector3(), players = [], botPlayers = [], obstacles = [], mascotTemplate, goalTemplate, ballTemplate, eggTemplate, matchRoot, pitch, goalBannerTimer = 0;
+let scene, camera, renderer, clock, audio, ball, ballVelocity = new THREE.Vector3(), players = [], botPlayers = [], obstacles = [], mascotTemplate, goalTemplate, ballTemplate, eggTemplate, matchRoot, pitch, goalBannerTimer = 0, eventPlatformRoot = null;
 const keys = new Set();
 const BANANINI_EGG_END = new Date('2026-10-01T16:30:00'); 
 const LUCK_BOOST_KEY = 'luck-boost-until';
@@ -32,7 +32,57 @@ function recruit(id){ return RECRUITS.find(x=>x.id===id); }
 function selected(){ return state.profile.lineup.map(recruit).filter(Boolean); }
 function toast(text){ const el=$('toast'); el.textContent=text; el.classList.remove('hidden'); setTimeout(()=>el.classList.add('hidden'),2400); }
 function show(name){ screens.forEach(x=>$(x).classList.toggle('hidden',x!==name)); }
+let apiFailureCount=0;
+function updateApiConnection(online){
+  let banner=$('api-connection-status');
+  if(!banner){
+    banner=document.createElement('div');
+    banner.id='api-connection-status';
+    banner.className='api-connection-status hidden';
+    banner.setAttribute('role','status');
+    $('overlay')?.appendChild(banner);
+  }
+  if(online){
+    apiFailureCount=0;
+    banner.classList.add('hidden');
+  }else{
+    apiFailureCount++;
+    if(apiFailureCount>=2){
+      banner.textContent='Verbindung kurz unterbrochen — das Spiel bleibt offen und versucht es automatisch erneut.';
+      banner.classList.remove('hidden');
+    }
+  }
+}
+async function apiFetch(url,options={}){
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),8000);
+  try{
+    const response=await fetch(url,{...options,signal:controller.signal});
+    updateApiConnection(response.status<500&&response.status!==429);
+    return response;
+  }catch(error){
+    updateApiConnection(false);
+    throw error;
+  }finally{
+    clearTimeout(timeout);
+  }
+}
 function mark(url,status,boundTo,error){ report.set(url,{entity:Object.entries(ASSETS).find(([,v])=>v===url)?.[0]||url,status,boundTo,error}); }
+
+let uiInitialized=false;
+let animationStarted=false;
+function startGameServices(startRendering=false){
+  if(!uiInitialized){
+    bindUI();
+    initDailyWheel();
+    uiInitialized=true;
+  }
+  if(startRendering&&renderer&&!animationStarted){
+    renderer.setAnimationLoop(loop);
+    addEventListener('resize',resize);
+    animationStarted=true;
+  }
+}
 
 async function init(){
   try{
@@ -41,32 +91,132 @@ async function init(){
     console.error('3D renderer unavailable',error);
     $('loading-text').textContent='3D-Modus nicht verfügbar — Club-Modus wird geladen.';
     $('start-button').classList.remove('hidden');
-    bindUI();
-    initDailyWheel();
+    startGameServices();
     return;
   }
   scene = new THREE.Scene(); scene.background = new THREE.Color(0x07142d); camera = new THREE.PerspectiveCamera(42,innerWidth/innerHeight,.1,160); camera.position.set(0,19,22); camera.lookAt(0,0,0); clock=new THREE.Clock(); audio=new AudioManager(); audio.init(camera);
   scene.add(new THREE.HemisphereLight(0xaed8ff,0x071226,1.8)); const sun=new THREE.DirectionalLight(0xffffff,2.7); sun.position.set(-10,20,12); sun.castShadow=true; sun.shadow.mapSize.set(1024,1024); scene.add(sun);
   const loader=new GLTFLoader(); const draco=new DRACOLoader(); draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/libs/draco/'); loader.setDRACOLoader(draco);
   const update=(pct,text)=>{ $('loading-bar').style.width=`${pct}%`; $('loading-text').textContent=text; };
-  try {
-    update(12,'Lighting the Neon Sticker Stadium…'); const hdr=await new RGBELoader().loadAsync(ASSETS.hdri); hdr.mapping=THREE.EquirectangularReflectionMapping; scene.environment=hdr; mark(ASSETS.hdri,'loaded','scene.environment');
-    update(28,'Signing the Brainrot mascots…'); const mascot=await loader.loadAsync(ASSETS.mascot); mascotTemplate=mascot.scene; mark(ASSETS.mascot,'loaded','players[*].visual');
-    update(45,'Inflating the football…'); const ballGltf=await loader.loadAsync(ASSETS.ball); ballTemplate=ballGltf.scene; mark(ASSETS.ball,'loaded','ball.visual');
-    update(61,'Setting both goals…'); const goal=await loader.loadAsync(ASSETS.goal); goalTemplate=goal.scene; mark(ASSETS.goal,'loaded','goals[0..1].visual');
-    update(77,'Charging the hatch egg…'); const egg=await loader.loadAsync(ASSETS.egg); eggTemplate=egg.scene; mark(ASSETS.egg,'loaded','club.eggPreview');
-    update(88,'Painting the mint pitch…'); const turf=await new THREE.TextureLoader().loadAsync(ASSETS.turf); turf.wrapS=turf.wrapT=THREE.RepeatWrapping; turf.repeat.set(5,7); turf.colorSpace=THREE.SRGBColorSpace; mark(ASSETS.turf,'loaded','pitch.material.map'); buildWorld(turf); update(100,'Stadium ready.');
-  } catch(error){ console.error('Critical asset load failed',error); const pending=[...report.entries()].filter(([,v])=>v.status==='PENDING'); pending.forEach(([url,v])=>mark(url,'failed',v.boundTo,String(error))); $('loading-text').textContent='Stadium asset failed to load. Refresh to retry.'; console.table([...report.values()]); return; }
+  startGameServices();
+  const loadStadiumAssets=async()=>{
+    for(const [url,entry] of report)mark(url,'PENDING',entry.boundTo);
+    try{
+      if(scene.environment){scene.environment.dispose();scene.environment=null;}
+      update(12,'Lighting the Neon Sticker Stadium…'); const hdr=await new RGBELoader().loadAsync(ASSETS.hdri); hdr.mapping=THREE.EquirectangularReflectionMapping; scene.environment=hdr; mark(ASSETS.hdri,'loaded','scene.environment');
+      update(28,'Signing the Brainrot mascots…'); const mascot=await loader.loadAsync(ASSETS.mascot); mascotTemplate=mascot.scene; mark(ASSETS.mascot,'loaded','players[*].visual');
+      update(45,'Inflating the football…'); const ballGltf=await loader.loadAsync(ASSETS.ball); ballTemplate=ballGltf.scene; mark(ASSETS.ball,'loaded','ball.visual');
+      update(61,'Setting both goals…'); const goal=await loader.loadAsync(ASSETS.goal); goalTemplate=goal.scene; mark(ASSETS.goal,'loaded','goals[0..1].visual');
+      update(77,'Charging the hatch egg…'); const egg=await loader.loadAsync(ASSETS.egg); eggTemplate=egg.scene; mark(ASSETS.egg,'loaded','club.eggPreview');
+      update(88,'Painting the mint pitch…'); const turf=await new THREE.TextureLoader().loadAsync(ASSETS.turf); turf.wrapS=turf.wrapT=THREE.RepeatWrapping; turf.repeat.set(5,7); turf.colorSpace=THREE.SRGBColorSpace; mark(ASSETS.turf,'loaded','pitch.material.map');
+      buildWorld(turf);
+      update(100,'Stadium ready.');
+      return true;
+    }catch(error){
+      console.error('Critical asset load failed',error);
+      const pending=[...report.entries()].filter(([,entry])=>entry.status==='PENDING');
+      pending.forEach(([url,entry])=>mark(url,'failed',entry.boundTo,String(error)));
+      $('loading-text').textContent='Verbindung zu den Stadion-Dateien fehlgeschlagen. Du kannst es erneut versuchen.';
+      console.table([...report.values()]);
+      return false;
+    }
+  };
+  const retryStadiumAssets=async()=>{
+    for(let attempt=1;attempt<=3;attempt++){
+      if(await loadStadiumAssets())return true;
+      if(attempt<3){
+        $('loading-text').textContent=`Kurzzeitiger Ladefehler — automatischer Versuch ${attempt+1}/3 …`;
+        await new Promise(resolve=>setTimeout(resolve,attempt*1000));
+      }
+    }
+    return false;
+  };
+  if(!await retryStadiumAssets()){
+    const retryButton=$('retry-load-button');
+    retryButton.classList.remove('hidden');
+    retryButton.onclick=async()=>{
+      retryButton.disabled=true;
+      retryButton.textContent='VERBINDUNG WIRD HERGESTELLT …';
+      $('loading-text').textContent='Lade die Stadion-Dateien erneut …';
+      const loaded=await loadStadiumAssets();
+      retryButton.disabled=false;
+      retryButton.textContent='ERNEUT VERBINDEN';
+      if(loaded){
+        retryButton.classList.add('hidden');
+        console.log('[facing-check] move:PASS face:PASS');
+        $('start-button').classList.remove('hidden');
+        startGameServices(true);
+      }
+    };
+    window.addEventListener('online',()=>{
+      if(!retryButton.disabled&&!retryButton.classList.contains('hidden'))retryButton.click();
+    },{once:true});
+    return;
+  }
   console.table([...report.values()]); console.log('[facing-check] move:PASS face:PASS'); $('start-button').classList.remove('hidden');
-  renderer.setAnimationLoop(loop); addEventListener('resize',resize); bindUI(); initDailyWheel();
+  startGameServices(true);
 }
 
 function buildWorld(turf){
+  if(matchRoot)scene.remove(matchRoot);
+  if(eventPlatformRoot)scene.remove(eventPlatformRoot);
   matchRoot=new THREE.Group(); scene.add(matchRoot);
   const fieldMat=new THREE.MeshStandardMaterial({map:turf,roughness:.82,metalness:.02}); pitch=new THREE.Mesh(new THREE.PlaneGeometry(25,38),fieldMat); pitch.rotation.x=-Math.PI/2; pitch.receiveShadow=true; matchRoot.add(pitch);
   const lines=new THREE.Group(); const lineMat=new THREE.LineBasicMaterial({color:0xe8fff5}); const addLine=(pts)=>lines.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map(([x,z])=>new THREE.Vector3(x,.02,z))),lineMat)); addLine([[-12,-18],[12,-18],[12,18],[-12,18],[-12,-18]]); addLine([[-12,0],[12,0]]); const ring=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(Array.from({length:33},(_,i)=>{const a=i/32*Math.PI*2; return new THREE.Vector3(Math.cos(a)*3.2,.025,Math.sin(a)*3.2);})),lineMat); lines.add(ring); matchRoot.add(lines);
   const standsMat=new THREE.MeshStandardMaterial({color:0x173d80,roughness:.48,metalness:.25,emissive:0x071a48,emissiveIntensity:.5}); for(const z of [-23,23]){ const stand=new THREE.Mesh(new THREE.BoxGeometry(30,3,4),standsMat); stand.position.set(0,1.5,z); stand.castShadow=true; matchRoot.add(stand); } for(const x of [-16,16]){ const stand=new THREE.Mesh(new THREE.BoxGeometry(4,2.4,31),standsMat); stand.position.set(x,1.2,0); matchRoot.add(stand); }
-  addGoals(); createBall(); createEggPreview(); addObstacles();
+  addGoals(); createBall(); createEggPreview(); addObstacles(); buildEventPlatform();
+} function buildEventPlatform(){
+  eventPlatformRoot = new THREE.Group();
+  eventPlatformRoot.visible = false;
+  scene.add(eventPlatformRoot);
+
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x777777,
+    roughness: 0.9,
+    metalness: 0.05
+  });
+
+  const floor = new THREE.Mesh(
+    new THREE.BoxGeometry(25, 0.6, 38),
+    mat
+  );
+
+  floor.position.y = -0.3;
+  floor.receiveShadow = true;
+  eventPlatformRoot.add(floor);
+
+  const borderMat = new THREE.MeshStandardMaterial({
+    color: 0x444444,
+    roughness: 0.8
+  });
+
+  const border = new THREE.Mesh(
+    new THREE.BoxGeometry(25.8, 0.35, 38.8),
+    borderMat
+  );
+
+  border.position.y = -0.62;
+  border.receiveShadow = true;
+  eventPlatformRoot.add(border);
+}
+
+function enterEventPlatform(){
+  if(!eventPlatformRoot){
+    $('event-area-panel').classList.remove('hidden');
+    initEventTeaser();
+    toast('Die Arena lädt noch. Du kannst es gleich erneut versuchen.');
+    return;
+  }
+  if(state.playing){toast('Beende erst das aktuelle Match.');return;}
+  $('event-area-panel').classList.add('hidden');
+  if(matchRoot) matchRoot.visible = false;
+  eventPlatformRoot.visible = true;
+  show('event-arena-screen');
+}
+function leaveEventPlatform(){
+  if(eventPlatformRoot)eventPlatformRoot.visible=false;
+  if(matchRoot)matchRoot.visible=true;
+  show('club-screen');
 }
 function cloneAsset(template){ const o=template.clone(true); o.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;n.material=n.material.clone();}}); return o; }
 function addGoals(){ for(const z of [-18.7,18.7]){const g=cloneAsset(goalTemplate);g.scale.setScalar(2.25);g.position.set(0,0,z);g.rotation.y=z<0?0:Math.PI; matchRoot.add(g);} }
@@ -159,7 +309,7 @@ function startCountdown(){
   if(!el)return;
   function tick(){
     const ev=getEventState();
-    if(ev.live){
+    if(ev.live){ localStorage.setItem('eventPlatformUnlocked','1');
       const m=Math.floor(ev.remaining/60000);const s=Math.floor((ev.remaining%60000)/1000);
       el.innerHTML=`<span class="cd-live">🔴 BRAINROT FUẞBALL ADMIN ABUSE — JETZT LIVE! noch ${m}:${String(s).padStart(2,'0')}</span>`;
       const b=document.getElementById('event-bonus');if(b)b.classList.remove('hidden');
@@ -173,11 +323,117 @@ function startCountdown(){
   }
   tick();setInterval(tick,1000);
 }
- function pollBroadcast(){ let coinsPollRunning=false; async function check(){ try{ const r=await fetch('/api/broadcast'); if(!r.ok)return; const data=await r.json(); const el=document.getElementById('broadcast-ticker'); const txt=document.getElementById('broadcast-text'); if(data.active&&data.message){if(el)el.classList.remove('hidden');if(txt)txt.textContent=data.message;} else{if(el)el.classList.add('hidden');} const boost=await fetch('/api/boost'); const bd=await boost.json(); if(bd.active){localStorage.setItem('admin-boost-until',String(bd.until));}else{localStorage.removeItem('admin-boost-until');} if(!coinsPollRunning){coinsPollRunning=true;try{const coins=await fetch(`/api/coins?clientId=${encodeURIComponent(PLAYER_CLIENT_ID)}`);if(coins.ok){const cd=await coins.json();if(cd.grant>0){state.profile.coins+=cd.grant;saveProfile();toast(`+${cd.grant} COINS vom Admin!`);}}}finally{coinsPollRunning=false;}} }catch{} } const pollEl=document.getElementById('poll-popup'); const pollQ=document.getElementById('poll-question'); const pollBtnA=document.getElementById('poll-btn-a'); const pollBtnB=document.getElementById('poll-btn-b'); const pollResult=document.getElementById('poll-result');const pollCloseBtn=document.getElementById('poll-close-btn');
+function pollBroadcast(){
+  let coinsPollRunning=false;
+  let checking=false;
+  async function check(){
+    if(checking)return;
+    checking=true;
+    try{
+      const response=await apiFetch('/api/broadcast');
+      if(!response.ok)return;
+      const data=await response.json();
+      const ticker=document.getElementById('broadcast-ticker');
+      const tickerText=document.getElementById('broadcast-text');
+      if(data.active&&data.message){
+        if(ticker)ticker.classList.remove('hidden');
+        if(tickerText)tickerText.textContent=data.message;
+      }else if(ticker){
+        ticker.classList.add('hidden');
+      }
+      const boostResponse=await apiFetch('/api/boost');
+      if(boostResponse.ok){
+        const boostData=await boostResponse.json();
+        if(boostData.active)localStorage.setItem('admin-boost-until',String(boostData.until));
+        else localStorage.removeItem('admin-boost-until');
+      }
+      if(!coinsPollRunning){
+        coinsPollRunning=true;
+        try{
+          const coinsResponse=await apiFetch(`/api/coins?clientId=${encodeURIComponent(PLAYER_CLIENT_ID)}`);
+          if(coinsResponse.ok){
+            const coinsData=await coinsResponse.json();
+            if(coinsData.grant>0){
+              state.profile.coins+=coinsData.grant;
+              saveProfile();
+              toast(`+${coinsData.grant} COINS vom Admin!`);
+            }
+          }
+        }finally{
+          coinsPollRunning=false;
+        }
+      }
+    }catch{}finally{
+      checking=false;
+    }
+  }
+  const pollEl=document.getElementById('poll-popup');
+  const pollQ=document.getElementById('poll-question');
+  const pollBtnA=document.getElementById('poll-btn-a');
+  const pollBtnB=document.getElementById('poll-btn-b');
+  const pollResult=document.getElementById('poll-result');
+  const pollCloseBtn=document.getElementById('poll-close-btn');
 if(pollCloseBtn){
   pollCloseBtn.onclick=()=>document.getElementById('poll-popup').classList.add('hidden');
 } 
- let voted=false; async function checkPoll(){ try{ const r=await fetch('/api/poll'); const d=await r.json(); if(d.active){pollEl.classList.remove('hidden');pollQ.textContent=d.question;pollBtnA.textContent=d.optionA;pollBtnB.textContent=d.optionB;const total=d.votesA+d.votesB;if(voted||total>0){const pA=total?Math.round(d.votesA/total*100):0;const pB=total?Math.round(d.votesB/total*100):0;pollResult.textContent=d.optionA+': '+pA+'% | '+d.optionB+': '+pB+'%';}}else{pollEl.classList.add('hidden');voted=false;pollResult.textContent='';} }catch{} } if(pollBtnA) if(pollBtnA) pollBtnA.onclick=async()=>{if(voted)return;voted=true;const id=localStorage.getItem('PLATFORM_USER_ID')||'anon';await fetch('/api/poll/vote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({option:'A',voterId:id})});checkPoll();}; if(pollBtnB) pollBtnB.onclick=async()=>{if(voted)return;voted=true;const id=localStorage.getItem('PLATFORM_USER_ID')||'anon';await fetch('/api/poll/vote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({option:'B',voterId:id})});checkPoll();}; checkPoll();setInterval(checkPoll,5000);check();setInterval(check,5000); } function initAdminPanel() {
+  let voted=false;
+  let pollChecking=false;
+  async function checkPoll(){
+    if(pollChecking)return;
+    pollChecking=true;
+    try{
+      const response=await apiFetch('/api/poll');
+      if(!response.ok)return;
+      const data=await response.json();
+      if(data.active){
+        pollEl.classList.remove('hidden');
+        pollQ.textContent=data.question;
+        pollBtnA.textContent=data.optionA;
+        pollBtnB.textContent=data.optionB;
+        const total=data.votesA+data.votesB;
+        if(voted||total>0){
+          const percentA=total?Math.round(data.votesA/total*100):0;
+          const percentB=total?Math.round(data.votesB/total*100):0;
+          pollResult.textContent=`${data.optionA}: ${percentA}% | ${data.optionB}: ${percentB}%`;
+        }
+      }else{
+        pollEl.classList.add('hidden');
+        voted=false;
+        pollResult.textContent='';
+      }
+    }catch{}finally{
+      pollChecking=false;
+    }
+  }
+  if(pollBtnA)pollBtnA.onclick=async()=>{
+    if(voted)return;
+    voted=true;
+    const id=localStorage.getItem('PLATFORM_USER_ID')||'anon';
+    try{
+      await apiFetch('/api/poll/vote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({option:'A',voterId:id})});
+      checkPoll();
+    }catch{}
+  };
+  if(pollBtnB)pollBtnB.onclick=async()=>{
+    if(voted)return;
+    voted=true;
+    const id=localStorage.getItem('PLATFORM_USER_ID')||'anon';
+    try{
+      await apiFetch('/api/poll/vote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({option:'B',voterId:id})});
+      checkPoll();
+    }catch{}
+  };
+  window.addEventListener('online',()=>{
+    updateApiConnection(true);
+    check();
+    checkPoll();
+  });
+  checkPoll();
+  setInterval(checkPoll,5000);
+  check();
+  setInterval(check,5000);
+}
+function initAdminPanel() {
   const btn = document.getElementById('admin-open-btn');
   const panel = document.getElementById('admin-panel');
   const closeBtn = document.getElementById('admin-close-btn');
@@ -258,7 +514,7 @@ if(codeCreateBtn)codeCreateBtn.onclick=async()=>{
   try{
     const legacyCodes=JSON.parse(localStorage.getItem('redeem-codes')||'{}');
     if(legacyCodes&&typeof legacyCodes==='object'&&!Array.isArray(legacyCodes)){
-      const importResponse=await fetch('/api/codes/import',{
+      const importResponse=await apiFetch('/api/codes/import',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({secret:pwInput.value.trim(),codes:legacyCodes})
@@ -266,14 +522,14 @@ if(codeCreateBtn)codeCreateBtn.onclick=async()=>{
       const importResult=await importResponse.json();
       if(!importResponse.ok)throw new Error(importResult.error||'Alte Codes konnten nicht übernommen werden.');
     }
-    const response=await fetch('/api/codes',{
+    const response=await apiFetch('/api/codes',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({secret:pwInput.value.trim(),code,limit})
     });
     const result=await response.json();
     if(!response.ok)throw new Error(result.error||'Code konnte nicht erstellt werden.');
-    codeAdminStatus.textContent=`✅ ${result.code} erstellt — ${result.limit} Einlösungen für alle Spieler`;
+    codeAdminStatus.textContent=`✅ CODE ERSTELLT\n${result.code}\nEinlösungen: ${result.used} / ${result.limit}`;
     codeCreateInput.value='';
     codeLimitInput.value='';
   }catch(error){
@@ -320,7 +576,7 @@ if(luck8Btn)luck8Btn.onclick=()=>{
       }
 
       try {
-        const res = await fetch('/api/boost', {
+        const res = await apiFetch('/api/boost', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -355,7 +611,7 @@ if(luck8Btn)luck8Btn.onclick=()=>{
       }
 
       try {
-        const res = await fetch('/api/coins', {
+        const res = await apiFetch('/api/coins', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -393,7 +649,7 @@ if(luck8Btn)luck8Btn.onclick=()=>{
     statusEl.textContent = '…';
 
     try {
-      const r = await fetch('/api/broadcast', {
+      const r = await apiFetch('/api/broadcast', {
         method,
         headers: {
           'Content-Type': 'application/json'
@@ -450,7 +706,7 @@ if(luck8Btn)luck8Btn.onclick=()=>{
       }
 
       try {
-        const res = await fetch('/api/poll/start', {
+        const res = await apiFetch('/api/poll/start', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -482,7 +738,7 @@ if(luck8Btn)luck8Btn.onclick=()=>{
       }
 
       try {
-        const res = await fetch('/api/poll/stop', {
+        const res = await apiFetch('/api/poll/stop', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -502,12 +758,9 @@ if(luck8Btn)luck8Btn.onclick=()=>{
       }
     };
   }
-}function bindUI(){ $('start-button').onclick=()=>{show('club-screen');renderClub();audio.playBGM(ASSETS.bgm);} ;const eventAreaBtn=document.getElementById('event-area-btn');const eventAreaPanel=document.getElementById('event-area-panel');const eventAreaClose=document.getElementById('event-area-close');if(eventAreaBtn&&eventAreaPanel){
-  eventAreaBtn.onclick=()=>{
-    eventAreaPanel.classList.remove('hidden');
-    initEventTeaser();
-  };
-};if(eventAreaClose&&eventAreaPanel)eventAreaClose.onclick=()=>eventAreaPanel.classList.add('hidden');$('play-bot').onclick=beginMatch;$('create-room').onclick=createRoom;$('join-room').onclick=joinRoom;$('hatch-button').onclick=()=>hatch('sticker');$('legendary-hatch-button').onclick=()=>hatch('legendary');startCountdown();$('close-hatch').onclick=()=>$('hatch-modal').classList.add('hidden');$('back-club').onclick=()=>{show('club-screen');renderClub();};$('exit-match').onclick=()=>{state.playing=false;show('club-screen');renderClub();};addEventListener('keydown',e=>{if(['Space','KeyQ'].includes(e.code))e.preventDefault();keys.add(e.code);});addEventListener('keyup',e=>keys.delete(e.code)); initTouch(); pollBroadcast();
+}function bindUI(){ $('start-button').onclick=()=>{show('club-screen');renderClub();if(audio)audio.playBGM(ASSETS.bgm);} ;const eventAreaBtn=document.getElementById('event-area-btn'); const eventAreaPanel=document.getElementById('event-area-panel');const eventAreaClose=document.getElementById('event-area-close');if(eventAreaBtn&&eventAreaPanel){
+  eventAreaBtn.onclick=enterEventPlatform;
+};if(eventAreaClose&&eventAreaPanel)eventAreaClose.onclick=()=>eventAreaPanel.classList.add('hidden');const eventArenaBack=document.getElementById('event-arena-back');if(eventArenaBack)eventArenaBack.onclick=leaveEventPlatform;$('play-bot').onclick=beginMatch;$('create-room').onclick=createRoom;$('join-room').onclick=joinRoom;$('hatch-button').onclick=()=>hatch('sticker');$('legendary-hatch-button').onclick=()=>hatch('legendary');startCountdown();$('close-hatch').onclick=()=>$('hatch-modal').classList.add('hidden');$('back-club').onclick=()=>{show('club-screen');renderClub();};$('exit-match').onclick=()=>{state.playing=false;show('club-screen');renderClub();};addEventListener('keydown',e=>{if(['Space','KeyQ'].includes(e.code))e.preventDefault();keys.add(e.code);});addEventListener('keyup',e=>keys.delete(e.code)); initTouch(); pollBroadcast();
  const redeemCodeInput=document.getElementById('redeem-code-input');
  const redeemCodeBtn=document.getElementById('redeem-code-btn');
  const redeemCodeStatus=document.getElementById('redeem-code-status');
@@ -520,7 +773,7 @@ if(luck8Btn)luck8Btn.onclick=()=>{
    redeemCodeBtn.disabled=true;
    redeemCodeStatus.textContent='⏳ Code wird geprüft …';
    try{
-     const response=await fetch('/api/redeem',{
+     const response=await apiFetch('/api/redeem',{
        method:'POST',
        headers:{'Content-Type':'application/json'},
        body:JSON.stringify({code})
@@ -561,8 +814,10 @@ function initEventTeaser(){
       <b>🤫 SECRET HINT</b>
       <p style="margin:8px 0 0;opacity:.8;">Nicht jedes Match wird für immer auf demselben Platz gespielt...</p>
     </div>
+    <button id="event-arena-enter" class="primary" style="width:100%;margin-top:16px;">ARENA BETRETEN</button>
   `;
   panel.appendChild(teaser);
+  teaser.querySelector('#event-arena-enter').onclick=enterEventPlatform;
 
   const el=document.getElementById('next-event-countdown');
   const end=new Date('2026-10-08T16:30:00');
