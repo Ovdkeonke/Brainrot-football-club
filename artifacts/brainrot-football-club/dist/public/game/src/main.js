@@ -1,0 +1,1538 @@
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+import { ASSETS, FACING, RECRUITS, DEFAULT_PROFILE } from './config.js';
+import AudioManager from './audio-manager.js';
+
+const $ = (id) => document.getElementById(id);
+const screens = ['loading-screen','club-screen','match-screen','result-screen','event-arena-screen','halloween-fuse-screen'];
+const GAME_ID = 'brainrot-football-club';
+const PLATFORM_USER_ID = '00000001';
+const localKey = `game-data:${PLATFORM_USER_ID}:${GAME_ID}:${window.__devMode ? 'profile-dev' : 'profile'}`;
+function getPlayerClientId(){
+  const key=`${GAME_ID}:player-client-id`;
+  let id=localStorage.getItem(key);
+  if(!id){
+    id=globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(key,id);
+  }
+  return id;
+}
+const PLAYER_CLIENT_ID=getPlayerClientId();
+const report = new Map(Object.entries(ASSETS).map(([key,url]) => [url,{ entity:key,status:'PENDING',boundTo:'—' }]));
+const state = { profile: loadProfile(), playing:false, score:[0,0], time:150, active:0, lastShot:0, room:null };
+let scene, camera, renderer, clock, audio, ball, ballVelocity = new THREE.Vector3(), players = [], botPlayers = [], obstacles = [], mascotTemplate, goalTemplate, ballTemplate, eggTemplate, matchRoot, pitch, goalBannerTimer = 0, eventPlatformRoot = null;
+const keys = new Set();
+const BANANINI_EGG_END = new Date('2026-10-01T16:30:00'); 
+const LUCK_BOOST_KEY = 'luck-boost-until';
+function loadProfile(){ try { const saved=JSON.parse(localStorage.getItem(localKey)); const p={ ...DEFAULT_PROFILE, ...saved, roster:Array.from(new Set(saved?.roster || DEFAULT_PROFILE.roster)), lineup:saved?.lineup || DEFAULT_PROFILE.lineup }; const numericCoins=Number(p.coins); p.coins=Number.isFinite(numericCoins)&&numericCoins>=0?numericCoins:DEFAULT_PROFILE.coins; if(!window.__devMode && p.coins>=100000){ p.coins=DEFAULT_PROFILE.coins; localStorage.setItem(localKey,JSON.stringify(p)); } return p; } catch { return structuredClone(DEFAULT_PROFILE); } }
+function saveProfile(){ localStorage.setItem(localKey, JSON.stringify(state.profile)); renderClub(); }
+function recruit(id){ return RECRUITS.find(x=>x.id===id); }
+function selected(){ return state.profile.lineup.map(recruit).filter(Boolean); }
+function toast(text){ const el=$('toast'); el.textContent=text; el.classList.remove('hidden'); setTimeout(()=>el.classList.add('hidden'),2400); }
+function show(name){ screens.forEach(x=>$(x).classList.toggle('hidden',x!==name)); }
+let apiFailureCount=0;
+function updateApiConnection(online){
+  let banner=$('api-connection-status');
+  if(!banner){
+    banner=document.createElement('div');
+    banner.id='api-connection-status';
+    banner.className='api-connection-status hidden';
+    banner.setAttribute('role','status');
+    $('overlay')?.appendChild(banner);
+  }
+  if(online){
+    apiFailureCount=0;
+    banner.classList.add('hidden');
+  }else{
+    apiFailureCount++;
+    if(apiFailureCount>=2){
+      banner.textContent='Verbindung kurz unterbrochen — das Spiel bleibt offen und versucht es automatisch erneut.';
+      banner.classList.remove('hidden');
+    }
+  }
+}
+async function apiFetch(url,options={}){
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),8000);
+  try{
+    const response=await fetch(url,{...options,signal:controller.signal});
+    updateApiConnection(response.status<500&&response.status!==429);
+    return response;
+  }catch(error){
+    updateApiConnection(false);
+    throw error;
+  }finally{
+    clearTimeout(timeout);
+  }
+}
+function mark(url,status,boundTo,error){ report.set(url,{entity:Object.entries(ASSETS).find(([,v])=>v===url)?.[0]||url,status,boundTo,error}); }
+
+let uiInitialized=false;
+let animationStarted=false;
+function startGameServices(startRendering=false){
+  if(!uiInitialized){
+    bindUI();
+    initDailyWheel();
+    uiInitialized=true;
+  }
+  if(startRendering&&renderer&&!animationStarted){
+    renderer.setAnimationLoop(loop);
+    addEventListener('resize',resize);
+    animationStarted=true;
+  }
+}
+
+async function init(){
+  try{
+    renderer = new THREE.WebGLRenderer({ canvas:$('game'), antialias:true, alpha:false, powerPreference:'default', failIfMajorPerformanceCaveat:false }); renderer.setSize(innerWidth,innerHeight); renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap; renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.25;
+  }catch(error){
+    console.error('3D renderer unavailable',error);
+    $('loading-text').textContent='3D-Modus nicht verfügbar — Club-Modus wird geladen.';
+    $('start-button').classList.remove('hidden');
+    startGameServices();
+    return;
+  }
+  scene = new THREE.Scene(); scene.background = new THREE.Color(0x07142d); camera = new THREE.PerspectiveCamera(42,innerWidth/innerHeight,.1,160); camera.position.set(0,19,22); camera.lookAt(0,0,0); clock=new THREE.Clock(); audio=new AudioManager(); audio.init(camera);
+  scene.add(new THREE.HemisphereLight(0xaed8ff,0x071226,1.8)); const sun=new THREE.DirectionalLight(0xffffff,2.7); sun.position.set(-10,20,12); sun.castShadow=true; sun.shadow.mapSize.set(1024,1024); scene.add(sun);
+  const loader=new GLTFLoader(); const draco=new DRACOLoader(); draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/libs/draco/'); loader.setDRACOLoader(draco);
+  const update=(pct,text)=>{ $('loading-bar').style.width=`${pct}%`; $('loading-text').textContent=text; };
+  startGameServices();
+  const loadStadiumAssets=async()=>{
+    for(const [url,entry] of report)mark(url,'PENDING',entry.boundTo);
+    try{
+      if(scene.environment){scene.environment.dispose();scene.environment=null;}
+      update(12,'Lighting the Neon Sticker Stadium…'); const hdr=await new RGBELoader().loadAsync(ASSETS.hdri); hdr.mapping=THREE.EquirectangularReflectionMapping; scene.environment=hdr; mark(ASSETS.hdri,'loaded','scene.environment');
+      update(28,'Signing the Brainrot mascots…'); const mascot=await loader.loadAsync(ASSETS.mascot); mascotTemplate=mascot.scene; mark(ASSETS.mascot,'loaded','players[*].visual');
+      update(45,'Inflating the football…'); const ballGltf=await loader.loadAsync(ASSETS.ball); ballTemplate=ballGltf.scene; mark(ASSETS.ball,'loaded','ball.visual');
+      update(61,'Setting both goals…'); const goal=await loader.loadAsync(ASSETS.goal); goalTemplate=goal.scene; mark(ASSETS.goal,'loaded','goals[0..1].visual');
+      update(77,'Charging the hatch egg…'); const egg=await loader.loadAsync(ASSETS.egg); eggTemplate=egg.scene; mark(ASSETS.egg,'loaded','club.eggPreview');
+      update(88,'Painting the mint pitch…'); const turf=await new THREE.TextureLoader().loadAsync(ASSETS.turf); turf.wrapS=turf.wrapT=THREE.RepeatWrapping; turf.repeat.set(5,7); turf.colorSpace=THREE.SRGBColorSpace; mark(ASSETS.turf,'loaded','pitch.material.map');
+      buildWorld(turf);
+      update(100,'Stadium ready.');
+      return true;
+    }catch(error){
+      console.error('Critical asset load failed',error);
+      const pending=[...report.entries()].filter(([,entry])=>entry.status==='PENDING');
+      pending.forEach(([url,entry])=>mark(url,'failed',entry.boundTo,String(error)));
+      $('loading-text').textContent='Verbindung zu den Stadion-Dateien fehlgeschlagen. Du kannst es erneut versuchen.';
+      console.table([...report.values()]);
+      return false;
+    }
+  };
+  const retryStadiumAssets=async()=>{
+    for(let attempt=1;attempt<=3;attempt++){
+      if(await loadStadiumAssets())return true;
+      if(attempt<3){
+        $('loading-text').textContent=`Kurzzeitiger Ladefehler — automatischer Versuch ${attempt+1}/3 …`;
+        await new Promise(resolve=>setTimeout(resolve,attempt*1000));
+      }
+    }
+    return false;
+  };
+  if(!await retryStadiumAssets()){
+    const retryButton=$('retry-load-button');
+    retryButton.classList.remove('hidden');
+    retryButton.onclick=async()=>{
+      retryButton.disabled=true;
+      retryButton.textContent='VERBINDUNG WIRD HERGESTELLT …';
+      $('loading-text').textContent='Lade die Stadion-Dateien erneut …';
+      const loaded=await loadStadiumAssets();
+      retryButton.disabled=false;
+      retryButton.textContent='ERNEUT VERBINDEN';
+      if(loaded){
+        retryButton.classList.add('hidden');
+        console.log('[facing-check] move:PASS face:PASS');
+        $('start-button').classList.remove('hidden');
+        startGameServices(true);
+      }
+    };
+    window.addEventListener('online',()=>{
+      if(!retryButton.disabled&&!retryButton.classList.contains('hidden'))retryButton.click();
+    },{once:true});
+    return;
+  }
+  console.table([...report.values()]); console.log('[facing-check] move:PASS face:PASS'); $('start-button').classList.remove('hidden');
+  startGameServices(true);
+}
+
+function buildWorld(turf){
+  if(matchRoot)scene.remove(matchRoot);
+  if(eventPlatformRoot)scene.remove(eventPlatformRoot);
+  matchRoot=new THREE.Group(); scene.add(matchRoot);
+  const fieldMat=new THREE.MeshStandardMaterial({map:turf,roughness:.82,metalness:.02}); pitch=new THREE.Mesh(new THREE.PlaneGeometry(25,38),fieldMat); pitch.rotation.x=-Math.PI/2; pitch.receiveShadow=true; matchRoot.add(pitch);
+  const lines=new THREE.Group(); const lineMat=new THREE.LineBasicMaterial({color:0xe8fff5}); const addLine=(pts)=>lines.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map(([x,z])=>new THREE.Vector3(x,.02,z))),lineMat)); addLine([[-12,-18],[12,-18],[12,18],[-12,18],[-12,-18]]); addLine([[-12,0],[12,0]]); const ring=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(Array.from({length:33},(_,i)=>{const a=i/32*Math.PI*2; return new THREE.Vector3(Math.cos(a)*3.2,.025,Math.sin(a)*3.2);})),lineMat); lines.add(ring); matchRoot.add(lines);
+  const standsMat=new THREE.MeshStandardMaterial({color:0x173d80,roughness:.48,metalness:.25,emissive:0x071a48,emissiveIntensity:.5}); for(const z of [-23,23]){ const stand=new THREE.Mesh(new THREE.BoxGeometry(30,3,4),standsMat); stand.position.set(0,1.5,z); stand.castShadow=true; matchRoot.add(stand); } for(const x of [-16,16]){ const stand=new THREE.Mesh(new THREE.BoxGeometry(4,2.4,31),standsMat); stand.position.set(x,1.2,0); matchRoot.add(stand); }
+  addGoals(); createBall(); createEggPreview(); addObstacles(); buildEventPlatform();
+} function buildEventPlatform(){
+  eventPlatformRoot = new THREE.Group();
+  eventPlatformRoot.visible = false;
+  scene.add(eventPlatformRoot);
+
+  // Dunkler Konzertboden
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x29213f,
+    roughness: 0.9,
+    metalness: 0.05
+  });
+
+  const floor = new THREE.Mesh(
+    new THREE.BoxGeometry(25, 0.6, 38),
+    mat
+  );
+
+  floor.position.y = -0.3;
+  floor.receiveShadow = true;
+  eventPlatformRoot.add(floor);
+
+  // Konfetti auf dem Boden
+  const confettiColors = [
+    0xff3366, 0xffd700, 0x35eaff,
+    0x8cff66, 0xff8c24, 0xffffff
+  ];
+
+  const confettiGeometry = new THREE.BoxGeometry(0.28, 0.035, 0.16);
+
+  for(let i = 0; i < 65; i++){
+    const color = confettiColors[i % confettiColors.length];
+
+    const piece = new THREE.Mesh(
+      confettiGeometry,
+      new THREE.MeshStandardMaterial({
+        color,
+        roughness: 0.7
+      })
+    );
+
+    const x = ((i * 37) % 230) / 10 - 11.5;
+    const z = ((i * 53) % 340) / 10 - 17;
+
+    piece.position.set(x, 0.025, z);
+    piece.rotation.y = (i * 0.73) % Math.PI;
+    eventPlatformRoot.add(piece);
+  }
+
+  // Kleine Konzertbühne
+  const stageMat = new THREE.MeshStandardMaterial({
+    color: 0x54328c,
+    roughness: 0.6,
+    metalness: 0.2
+  });
+
+  const stage = new THREE.Mesh(
+    new THREE.BoxGeometry(10, 0.6, 4),
+    stageMat
+  );
+
+  stage.position.set(0, 0.3, 0);
+  stage.castShadow = true;
+  stage.receiveShadow = true;
+  eventPlatformRoot.add(stage);
+
+  // Bühnenoberfläche
+  const stageTop = new THREE.Mesh(
+    new THREE.BoxGeometry(9.7, 0.12, 3.7),
+    new THREE.MeshStandardMaterial({ color: 0x9b65e8 })
+  );
+
+  stageTop.position.set(0, 0.66, 0);
+  eventPlatformRoot.add(stageTop);
+
+// Einfache graue Konzert-Rückwand
+const wall = new THREE.Mesh(
+  new THREE.BoxGeometry(14, 5, 0.35),
+  
+  new THREE.MeshStandardMaterial({
+  color: 0x7020FF,
+  emissive: 0x7020FF,
+  emissiveIntensity: 0.8
+})
+);
+
+wall.position.set(0, 2.5, -2.4);
+eventPlatformRoot.add(wall);
+
+// BFC LIVE Schrift
+const liveCanvas = document.createElement('canvas');
+liveCanvas.width = 1024;
+liveCanvas.height = 256;
+
+const ctx = liveCanvas.getContext('2d');
+ctx.fillStyle = '#888888';
+ctx.fillRect(0, 0, 1024, 256);
+
+ctx.fillStyle = '#ffffff';
+ctx.font = 'bold 130px Arial';
+ctx.textAlign = 'center';
+ctx.textBaseline = 'middle';
+ctx.fillText('BFC LIVE', 512, 128);
+
+const liveTexture = new THREE.CanvasTexture(liveCanvas);
+
+const liveSign = new THREE.Mesh(
+  new THREE.PlaneGeometry(8, 2),
+  new THREE.MeshBasicMaterial({ map: liveTexture })
+);
+
+liveSign.position.set(0, 3, -2.21);
+eventPlatformRoot.add(liveSign);
+  
+  // Lautsprecher links und rechts
+  const speakerMat = new THREE.MeshStandardMaterial({
+    color: 0x171725,
+    roughness: 0.65
+  });
+
+  for(const x of [-5.5, 5.5]){
+    const speaker = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1.7, 1.1),
+      speakerMat
+    );
+
+    speaker.position.set(x, 0.85, 0);
+    speaker.castShadow = true;
+    eventPlatformRoot.add(speaker);
+  }
+// Löwe als Konzert-Star
+const concertLion = cloneAsset(mascotTemplate);
+concertLion.scale.setScalar(1.12);
+concertLion.position.set(0, 0.72, 0);
+eventPlatformRoot.add(concertLion);
+// Spotlight für das Maskottchen
+const spotlight = new THREE.SpotLight(
+  0xffffff,
+  3,
+  20,
+  Math.PI / 7,
+  0.4,
+  1
+);
+
+spotlight.position.set(0, 9, 3);
+spotlight.target.position.set(0, 0.72, 0);
+
+eventPlatformRoot.add(spotlight);
+eventPlatformRoot.add(spotlight.target);
+// Sichtbarer Lichtstrahl
+const beam = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.12, 2.0, 8.8, 32, 1, true),
+  new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.13,
+    depthWrite: false,
+    side: THREE.DoubleSide
+  })
+);
+
+beam.position.set(0, 4.86, 1.5);
+beam.quaternion.setFromUnitVectors(
+  new THREE.Vector3(0, 1, 0),
+  new THREE.Vector3(0, 8.28, 3).normalize()
+);
+
+eventPlatformRoot.add(beam);
+// Dunkler Rand
+  const border = new THREE.Mesh(
+    new THREE.BoxGeometry(25.8, 0.35, 38.8),
+    new THREE.MeshStandardMaterial({ color: 0x191426 })
+  );
+
+  border.position.y = -0.62;
+  border.receiveShadow = true;
+  eventPlatformRoot.add(border);
+}
+let concertAudio = null;
+let concertMusicPlaying = false;
+function enterEventPlatform(){
+  initConcertMusicButton();
+  if(!eventPlatformRoot){
+    $('event-area-panel').classList.remove('hidden');
+    initEventTeaser();
+    toast('Die Arena lädt noch. Du kannst es gleich erneut versuchen.');
+    return;
+  }
+  if(state.playing){toast('Beende erst das aktuelle Match.');return;}
+  $('event-area-panel').classList.add('hidden');
+  if(matchRoot) matchRoot.visible = false;
+  eventPlatformRoot.visible = true;
+  show('event-arena-screen');
+
+}
+function initConcertMusicButton() {
+  const oldButton = document.getElementById('concert-music-toggle');
+  if (oldButton) oldButton.remove();
+
+  const button = document.createElement('button');
+  button.id = 'concert-music-toggle';
+  button.textContent = '▶ Konzertmusik starten';
+
+  button.style.position = 'fixed';
+  button.style.bottom = '90px';
+  button.style.right = '25px';
+  button.style.zIndex = '999999';
+  button.style.display = 'block';
+  button.style.visibility = 'visible';
+  button.style.opacity = '1';
+  button.style.background = '#7020FF';
+  button.style.color = 'white';
+  button.style.padding = '16px 22px';
+  button.style.border = '2px solid white';
+  button.style.borderRadius = '14px';
+  button.style.fontSize = '16px';
+  button.style.fontWeight = 'bold';
+
+  button.onclick = async () => {
+    if (!concertAudio) {
+      concertAudio = new Audio('./phonk.mp3');
+      concertAudio.loop = true;
+      concertAudio.volume = 0.55;
+    }
+
+    if (concertAudio.paused) {
+      try {
+        await concertAudio.play();
+        button.textContent = '⏸ Konzertmusik pausieren';
+      } catch (error) {
+        button.textContent = '▶ Konzertmusik starten';
+        toast('Musik konnte nicht gestartet werden.');
+      }
+    } else {
+      concertAudio.pause();
+      button.textContent = '▶ Konzertmusik starten';
+    }
+  };
+
+  document.body.appendChild(button);
+}
+function leaveEventPlatform(){
+  if(eventPlatformRoot)eventPlatformRoot.visible=false;
+  if(matchRoot)matchRoot.visible=true;
+  show('club-screen');
+  renderClub();
+if (concertAudio) {
+  concertAudio.pause();
+  concertAudio.currentTime = 0;
+}
+
+const musicButton = document.getElementById('concert-music-toggle');
+if (musicButton) musicButton.remove();
+}
+function cloneAsset(template){ const o=template.clone(true); o.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;n.material=n.material.clone();}}); return o; }
+function addGoals(){ for(const z of [-18.7,18.7]){const g=cloneAsset(goalTemplate);g.scale.setScalar(2.25);g.position.set(0,0,z);g.rotation.y=z<0?0:Math.PI; matchRoot.add(g);} }
+function createBall(){ ball=new THREE.Group(); ball.name='ball'; const visual=cloneAsset(ballTemplate); visual.scale.setScalar(.75); ball.add(visual); ball.position.set(0,.5,0); matchRoot.add(ball); }
+function createEggPreview(){ const egg=cloneAsset(eggTemplate); egg.name='egg-preview'; egg.scale.setScalar(.55); egg.position.set(-15,2.2,-19); egg.rotation.x=.22; matchRoot.add(egg); }
+function addObstacles(){ obstacles=[]; const mat=new THREE.MeshStandardMaterial({color:0x223355,roughness:.45,metalness:.7,emissive:0x0a1a3a,emissiveIntensity:.55}); const glowMat=new THREE.MeshBasicMaterial({color:0x4488ff,transparent:true,opacity:.22,side:THREE.DoubleSide}); const spots=[[-7,-8],[7,-8],[-7,8],[7,8]]; spots.forEach(([x,z])=>{ const hw=.7,hd=.7,h=2.1; const box=new THREE.Mesh(new THREE.BoxGeometry(hw*2,h,hd*2),mat); box.position.set(x,h/2,z); box.castShadow=true; matchRoot.add(box); const glow=new THREE.Mesh(new THREE.BoxGeometry(hw*2+.18,h+.1,hd*2+.18),glowMat); glow.position.set(x,h/2,z); matchRoot.add(glow); obstacles.push({x,z,hw,hd}); }); }
+function makePlayer(data,team,index){ const root=new THREE.Group(); root.userData={data,team,index,velocity:new THREE.Vector3(),home:new THREE.Vector3(),cooldown:0}; const pivot=new THREE.Group(); pivot.rotation.y=FACING.player.visualPivotYaw; const visual=cloneAsset(mascotTemplate); visual.scale.setScalar(1.12); visual.traverse(n=>{if(n.isMesh && n.material.color){ n.material.color.lerp(new THREE.Color(data.color),.33); }}); pivot.add(visual); root.add(pivot); const glow=new THREE.Mesh(new THREE.RingGeometry(.68,.82,24),new THREE.MeshBasicMaterial({color:data.color,transparent:true,opacity:.78,side:THREE.DoubleSide})); glow.rotation.x=-Math.PI/2; glow.position.y=.035; root.add(glow); matchRoot.add(root); return root; }
+function resetTeams(){ players.forEach(p=>matchRoot.remove(p)); botPlayers.forEach(p=>matchRoot.remove(p)); players=[];botPlayers=[]; const formation=[[0,9],[-5,4],[5,4]]; selected().forEach((d,i)=>{const p=makePlayer(d,0,i);p.position.set(formation[i][0],0,formation[i][1]);p.userData.home.copy(p.position);players.push(p);}); const bot=['glimmer','bricko','bloop'].map(recruit); bot.forEach((d,i)=>{const p=makePlayer(d,1,i);p.position.set(-formation[i][0],0,-formation[i][1]);p.userData.home.copy(p.position);botPlayers.push(p);}); state.active=0; updateMatchHUD(); }
+function beginMatch(){ if(!renderer||!matchRoot||!ball){toast('Der 3D-Spielmodus ist in diesem Browser nicht verfügbar.');return;} state.playing=true;state.score=[0,0];state.time=150;ball.position.set(0,.5,0);ballVelocity.set(0,0,0);resetTeams(); show('match-screen'); $('goal-banner').classList.add('hidden'); audio.playSFX(ASSETS.whistle); audio.playBGM(ASSETS.bgm); toast('Kick off! First to 3 wins.'); }
+function endMatch(){ state.playing=false; const won=state.score[0]>state.score[1]; const draw=state.score[0]===state.score[1]; const live=isLive();const mult=live?2:1;const boostMult=Date.now()<parseInt(localStorage.getItem('admin-boost-until')||'0')?5:1;const reward=(draw?28:won?52:22)*mult*boostMult; state.profile.coins+=reward; if(won)state.profile.wins++; else if(!draw)state.profile.losses++; saveProfile(); audio.playSFX(ASSETS.coin); $('result-kicker').textContent=draw?'MATCH DRAWN':won?'MATCH COMPLETE':'KEEP BUILDING'; $('result-title').textContent=draw?'A CLOSE DRAW!':won?'YOU WIN!':'THE RIVALS TAKE IT'; $('result-score').textContent=`${state.score[0]} — ${state.score[1]}`; $('reward-coins').textContent=`+${reward} COINS${live?' (2× EVENT BONUS)':''}`; $('reward-detail').textContent=live?'Double coins — Event is live!':won?'Victory bonus included':'Every match moves you toward an egg'; show('result-screen'); }
+function updateMatchHUD(){ const active=players[state.active]; $('blue-score').textContent=state.score[0];$('red-score').textContent=state.score[1]; $('match-timer').textContent=`${Math.floor(state.time/60)}:${String(Math.ceil(state.time%60)).padStart(2,'0')}`; if(active){$('active-name').textContent=active.userData.data.name.toUpperCase();$('active-role').textContent=active.userData.data.role;} }
+
+function handleInput(dt){ const actor=players[state.active]; if(!actor)return; const move=new THREE.Vector3((keys.has('KeyD')?1:0)-(keys.has('KeyA')?1:0),0,(keys.has('KeyS')?1:0)-(keys.has('KeyW')?1:0)); if(move.lengthSq()){move.normalize();const speed=keys.has('ShiftLeft')?8.4:6.1;actor.position.addScaledVector(move,speed*dt);actor.position.x=THREE.MathUtils.clamp(actor.position.x,-10.9,10.9);actor.position.z=THREE.MathUtils.clamp(actor.position.z,-17,17);actor.rotation.y=Math.atan2(move.x,move.z);}
+ if(keys.has('KeyQ')){ keys.delete('KeyQ'); state.active=(state.active+1)%players.length; toast(`${players[state.active].userData.data.name} is active`); updateMatchHUD(); }
+ if(keys.has('Space') && performance.now()-state.lastShot>420){keys.delete('Space');kickBall(actor);}
+}
+function kickBall(actor){ const d=ball.position.clone().sub(actor.position); d.y=0; if(d.length()>3.15)return; const forward=new THREE.Vector3(0,0,1).applyQuaternion(actor.quaternion); const towardGoal=new THREE.Vector3(0,0,-1); const isNearGoal=actor.position.z<1.5; const dir=isNearGoal?towardGoal:forward; ballVelocity.copy(dir).multiplyScalar(isNearGoal?17:12).add(new THREE.Vector3(0,1.9,0)); state.lastShot=performance.now(); audio.playSFX(ASSETS.kick); flashMessage(isNearGoal?'POWER SHOT!':'PASS!'); }
+function flashMessage(text){$('match-message').textContent=text;setTimeout(()=>{$('match-message').textContent='PLAY THE PASS';},900);}
+function aiUpdate(dt){ const all=[...players,...botPlayers]; const nearest=all.sort((a,b)=>a.position.distanceToSquared(ball.position)-b.position.distanceToSquared(ball.position))[0]; for(const bot of botPlayers){const delta=ball.position.clone().sub(bot.position);delta.y=0; const target=bot===nearest?delta:bot.userData.home.clone().add(delta.multiplyScalar(.18)).sub(bot.position); if(target.lengthSq()>.1){target.normalize();bot.position.addScaledVector(target,4.4*dt);bot.rotation.y=Math.atan2(target.x,target.z);} if(bot.position.distanceTo(ball.position)<2.25 && Math.random()<.022){ const dir=new THREE.Vector3(0,0,1);ballVelocity.copy(dir).multiplyScalar(13).add(new THREE.Vector3(0,1.3,0));audio.playSFX(ASSETS.kick); } }
+ for(const mate of players){if(mate===players[state.active])continue; const target=mate.userData.home.clone().lerp(ball.position,.12);const v=target.sub(mate.position);v.y=0;if(v.lengthSq()>.1){v.normalize();mate.position.addScaledVector(v,3.1*dt);mate.rotation.y=Math.atan2(v.x,v.z);}}
+}
+function ballUpdate(dt){ ballVelocity.y-=10*dt; ball.position.addScaledVector(ballVelocity,dt); ball.rotation.x+=ballVelocity.z*dt*1.5;ball.rotation.z-=ballVelocity.x*dt*1.5; if(ball.position.y<.5){ball.position.y=.5;ballVelocity.y=Math.abs(ballVelocity.y)*.42;if(Math.abs(ballVelocity.y)<.25)ballVelocity.y=0;ballVelocity.x*=.92;ballVelocity.z*=.92;} if(Math.abs(ball.position.x)>11.8){ball.position.x=Math.sign(ball.position.x)*11.8;ballVelocity.x*=-.82;} if(Math.abs(ball.position.z)>20.2){ ball.position.z=Math.sign(ball.position.z)*20.2; ballVelocity.z*=-.82; }
+ const br=.55; for(const obs of obstacles){ const dx=ball.position.x-obs.x; const dz=ball.position.z-obs.z; const ox=obs.hw+br-Math.abs(dx); const oz=obs.hd+br-Math.abs(dz); if(ox>0&&oz>0&&ball.position.y<2.2){ if(ox<oz){ball.position.x+=Math.sign(dx)*ox;ballVelocity.x*=-.78;}else{ball.position.z+=Math.sign(dz)*oz;ballVelocity.z*=-.78;} } }
+ if(Math.abs(ball.position.z)>18.1 && Math.abs(ball.position.x)<3.5 && ball.position.y<3.4){ scoreGoal(ball.position.z<0?0:1); }
+}
+function scoreGoal(team){ state.score[team]++; updateMatchHUD(); audio.playSFX(ASSETS.whistle); if(team===0){$('goal-banner').textContent='GOOOOAL!';$('goal-banner').classList.remove('hidden');goalBannerTimer=1.45;}else flashMessage('RIVALS SCORE!'); ball.position.set(0,.5,0);ballVelocity.set(0,0,0);players.forEach(p=>p.position.copy(p.userData.home));botPlayers.forEach(p=>p.position.copy(p.userData.home)); if(state.score[team]>=3)setTimeout(endMatch,850); }
+function updateClubEgg(){ const egg=scene.getObjectByName('egg-preview');if(egg)egg.rotation.y+=.01; }
+function loop(){ const dt=Math.min(clock.getDelta(),.05); updateClubEgg(); if(state.playing){state.time-=dt;handleInput(dt);aiUpdate(dt);ballUpdate(dt);if(goalBannerTimer>0){goalBannerTimer-=dt;if(goalBannerTimer<=0)$('goal-banner').classList.add('hidden');} if(state.time<=0)endMatch();updateMatchHUD(); } renderer.render(scene,camera); }
+function resize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,2));}
+
+function renderClub(){ $('coin-count').textContent=state.profile.coins; $('collection-count').textContent=`${state.profile.roster.length} recruit${state.profile.roster.length===1?'':'s'}`; const slots=$('lineup-slots');slots.innerHTML='';selected().forEach((r,i)=>{const b=document.createElement('button');b.className='lineup-card active';b.innerHTML=`<b>${i===0?'★ ':''}${r.name}</b><small>${r.role}</small><small class="rarity">${r.rarity}</small>`;b.onclick=()=>toast(i===0?`${r.name} is your captain.`:'Choose a recruit below to replace this slot.');slots.append(b);}); const synergy=selected().map(x=>x.role).filter((v,i,a)=>a.indexOf(v)===i).length===3?'Perfect trio: Striker + Midfielder + Defender = +10% team balance.':'Try one of each role for a balanced trio.';$('team-bonus').textContent=synergy;
+ const list=$('collection');list.innerHTML='';state.profile.roster.map(recruit).filter(Boolean).forEach(r=>{const b=document.createElement('button');b.className=`collection-card ${state.profile.lineup.includes(r.id)?'selected':''}`;b.innerHTML=`<b style="color:#${r.color.toString(16).padStart(6,'0')}">${r.name}</b><small>${r.rarity} • ${r.role}</small><div class="statline">PACE ${r.pace} • POWER ${r.power} • FLAIR ${r.flair}</div>`;b.onclick=()=>toggleLineup(r.id);list.append(b);}); if(isLive()){$('hatch-button').textContent='🔴 2× LUCK — HATCH STICKER EGG — 70';$('legendary-hatch-button').textContent='🔴 2× LUCK — HATCH LEGENDARY EGG — 900';}else{$('hatch-button').textContent='HATCH STICKER EGG — 70';$('legendary-hatch-button').textContent='HATCH LEGENDARY EGG — 900';} }
+function toggleLineup(id){const line=state.profile.lineup;if(line.includes(id)){if(line.length<=1)return toast('Keep at least one Brainrot selected.');state.profile.lineup=line.filter(x=>x!==id);}else if(line.length<3)state.profile.lineup=[...line,id];else{state.profile.lineup=[line[1],line[2],id];toast('Replaced your oldest starter.');}saveProfile();}
+ function hatch(type='sticker'){
+   const luckUntil=parseInt(localStorage.getItem(LUCK_BOOST_KEY)||'0');
+   const luckMult=Date.now()<luckUntil?Math.max(1,parseInt(localStorage.getItem('luck-boost-mult')||'1')):1;
+   const legendary=type==='legendary';
+   const cost=legendary?900:70;
+   if(state.profile.coins<cost)return toast('Win or play another match for more coins.');
+
+   const roll=Math.random();
+   const lv=isLive();
+   let pool;
+   if(legendary){
+     const ogChance=Math.min(1,(lv?.0025:.005)*luckMult);
+     const legendaryChance=Math.min(1,ogChance+(lv?.06:.03)*luckMult);
+     const epicChance=Math.min(1,legendaryChance+(lv?.24:.12)*luckMult);
+     const rareChance=Math.min(1,epicChance+(lv?.66:.33)*luckMult);
+     pool=roll<ogChance?RECRUITS.filter(x=>x.rarity==='OG')
+       :roll<legendaryChance?RECRUITS.filter(x=>x.rarity==='LEGENDARY')
+       :roll<epicChance?RECRUITS.filter(x=>x.rarity==='EPIC')
+       :roll<rareChance?RECRUITS.filter(x=>x.rarity==='RARE')
+       :RECRUITS.filter(x=>x.rarity==='COMMON');
+   }else{
+     const legendaryChance=Math.min(1,(lv?.004:.002)*luckMult);
+     const epicChance=Math.min(1,legendaryChance+(lv?.024:.012)*luckMult);
+     const rareChance=Math.min(1,epicChance+(lv?.14:.07)*luckMult);
+     pool=roll<legendaryChance?RECRUITS.filter(x=>x.rarity==='LEGENDARY')
+       :roll<epicChance?RECRUITS.filter(x=>x.rarity==='EPIC')
+       :roll<rareChance?RECRUITS.filter(x=>x.rarity==='RARE')
+       :RECRUITS.filter(x=>x.rarity==='COMMON');
+   }
+
+   if(!pool.length){
+     toast('Kein Brainrot verfügbar — keine Coins abgezogen.');
+     return;
+   }
+   const r=pool[Math.floor(Math.random()*pool.length)];
+   if(!r){
+     toast('Hatching fehlgeschlagen — keine Coins abgezogen.');
+     return;
+   }
+   state.profile.coins-=cost;
+   const duplicate=state.profile.roster.includes(r.id);
+   if(!duplicate)state.profile.roster.push(r.id);
+   else state.profile.coins+=legendary?250:22;
+   saveProfile();
+   audio.playSFX(ASSETS.hatch);
+   $('hatch-reveal').textContent=duplicate?'✦':r.name[0];
+   $('hatch-name').textContent=duplicate?`${r.name} DUPLICATE!`:r.name.toUpperCase();
+   $('hatch-details').textContent=`${r.rarity} • ${r.role}`;
+   $('hatch-trait').textContent=duplicate?`Duplicate converted into ${legendary?250:22} bonus coins.`:r.trait;
+   $('hatch-modal').classList.remove('hidden');
+ }
+function fuseHalloween(){
+  const result=$('halloween-fuse-result');
+  if(state.profile.coins<10000){
+    toast('Du brauchst 10.000 Coins!');
+    return;
+  }
+
+  const until=parseInt(localStorage.getItem('luck-boost-until')||'0');
+  const luck=Date.now()<until
+    ?Math.max(1,parseInt(localStorage.getItem('luck-boost-mult')||'1'))
+    :1;
+
+  const ghost=RECRUITS.find(r=>r.name.toLowerCase()==='ghostly');
+  const pumpkin=RECRUITS.find(r=>r.name.toLowerCase()==='pumpkini');
+  const reaper=RECRUITS.find(r=>r.name.toLowerCase()==='reaper');
+
+  if(!ghost||!pumpkin||!reaper){
+    toast('Halloween-Brainrots fehlen in config.js!');
+    return;
+  }
+
+  const pool=[
+    {r:ghost,w:75},
+    {r:pumpkin,w:24*luck},
+    {r:reaper,w:3*luck}
+  ];
+
+  let roll=Math.random()*pool.reduce((s,x)=>s+x.w,0);
+  const chosen=pool.find(x=>(roll-=x.w)<0).r;
+
+  state.profile.coins-=10000;
+  const duplicate=state.profile.roster.includes(chosen.id);
+
+  if(duplicate){
+    state.profile.coins+=5000;
+    result.textContent=`🔁 ${chosen.name} doppelt! 5.000 Coins zurück.`;
+  }else{
+    state.profile.roster.push(chosen.id);
+    result.textContent=`🎃 Du hast ${chosen.name} erhalten!`;
+  }
+
+  saveProfile();
+  toast(duplicate?'Duplikat! 5.000 Coins zurück.':`${chosen.name} erhalten!`);
+}
+function createRoom(){const code=Math.random().toString(36).slice(2,7).toUpperCase();state.room=code;$('room-code').value=code;$('online-status').textContent=`Room ${code} created. Share the code with a friend. This playable build launches a bot stand-in if no second player is connected.`;toast(`Room ${code} created`);}function joinRoom(){const code=$('room-code').value.trim().toUpperCase();if(!code)return toast('Enter a five-character room code.');state.room=code;$('online-status').textContent=`Joined room ${code}. Waiting for host sync; launching a local rival for this build.`;toast(`Joined ${code}`);}
+function getEventState(){const LIVE=15*60*1000;const now=new Date();const day=now.getDay();const days=(day-4+7)%7;const last=new Date(now);last.setDate(now.getDate()-days);last.setHours(16,30,0,0);if(last>now)last.setDate(last.getDate()-7);const since=now-last;if(since<LIVE)return{live:true,remaining:LIVE-since};const next=new Date(last);next.setDate(last.getDate()+7);return{live:false,msUntil:next-now};}
+function isLive(){return getEventState().live;}
+function startCountdown(){
+  const el=document.getElementById('event-countdown');
+  if(!el)return;
+  function tick(){
+    const ev=getEventState();
+    if(ev.live){ localStorage.setItem('eventPlatformUnlocked','1');
+      const m=Math.floor(ev.remaining/60000);const s=Math.floor((ev.remaining%60000)/1000);
+      el.innerHTML=`<span class="cd-live">🔴 BRAINROT FUẞBALL ADMIN ABUSE — JETZT LIVE! noch ${m}:${String(s).padStart(2,'0')}</span>`;
+      const b=document.getElementById('event-bonus');if(b)b.classList.remove('hidden');
+      const bt=document.getElementById('event-bonus-timer');if(bt)bt.textContent=`noch ${m}:${String(s).padStart(2,'0')}`;
+    }else{
+      const diff=ev.msUntil;const d=Math.floor(diff/86400000);const h=Math.floor((diff%86400000)/3600000);const m=Math.floor((diff%3600000)/60000);const s=Math.floor((diff%60000)/1000);
+      el.innerHTML=`<span class="cd-label">Brainrot Fußball admin abuse</span><span class="cd-timer">in ${d}d ${h}h ${m}m ${s}s</span>`;
+      const b=document.getElementById('event-bonus');if(b)b.classList.add('hidden');
+      const bt=document.getElementById('event-bonus-timer');if(bt)bt.textContent='';
+    }
+  }
+  tick();setInterval(tick,1000);
+} 
+function initBrainrotAP(){
+  if(document.getElementById('brainrot-ap-open'))return;
+
+  const style=document.createElement('style');
+  style.textContent=`
+    #brainrot-ap-open{
+      position:fixed;top:65px;left:12px;z-index:10020;
+      padding:10px 13px;border:1px solid #72f5c1;
+      border-radius:12px;background:#102c32;color:#baffdf;
+      font-weight:900;cursor:pointer
+    }
+    #brainrot-ap-panel,#brainrot-gift-popup{
+      position:fixed;inset:0;z-index:10030;
+      display:flex;align-items:center;justify-content:center;
+      padding:16px;background:#020817d9
+    }
+    #brainrot-ap-panel.hidden,#brainrot-gift-popup.hidden{
+      display:none
+    }
+    .brainrot-ap-card{
+      width:min(420px,100%);padding:22px;
+      border:1px solid #62e8bd;border-radius:18px;
+      background:#101b30;color:white;font-family:inherit
+    }
+    .brainrot-ap-card input,.brainrot-ap-card select{
+      box-sizing:border-box;width:100%;margin:8px 0 12px;
+      padding:12px;border-radius:10px
+    }
+    .brainrot-ap-card button{
+      padding:11px 14px;border:0;border-radius:10px;
+      background:#69efbd;color:#08251c;
+      font-weight:900;cursor:pointer
+    }
+    #brainrot-ap-status{margin-top:12px}
+  `;
+  document.head.appendChild(style);
+
+  const open=document.createElement('button');
+  open.id='brainrot-ap-open';
+  open.textContent='🎁 Brainrot AP';
+
+  const panel=document.createElement('div');
+  panel.id='brainrot-ap-panel';
+  panel.className='hidden';
+
+  const options=RECRUITS.map(r=>
+    `<option value="${String(r.id).replace(/"/g,'&quot;')}">${r.name}</option>`
+  ).join('');
+
+  panel.innerHTML=`
+    <div class="brainrot-ap-card">
+      <h2>🎁 Brainrot an alle senden</h2>
+      <label>Admin-Passwort</label>
+      <input id="brainrot-ap-password" type="password">
+      <label>Brainrot auswählen</label>
+      <select id="brainrot-ap-select">${options}</select>
+      <button id="brainrot-ap-send">An alle senden</button>
+      <button id="brainrot-ap-close">Schließen</button>
+      <div id="brainrot-ap-status"></div>
+    </div>`;
+
+  const gift=document.createElement('div');
+  gift.id='brainrot-gift-popup';
+  gift.className='hidden';
+  gift.innerHTML=`
+    <div class="brainrot-ap-card">
+      <h2 id="brainrot-gift-title">🎁 Ein Geschenk!</h2>
+      <p id="brainrot-gift-text"></p>
+      <button id="brainrot-gift-claim">Beanspruchen</button>
+    </div>`;
+
+  document.body.append(open,panel,gift);
+
+  open.onclick=()=>panel.classList.remove('hidden');
+  document.getElementById('brainrot-ap-close').onclick=
+    ()=>panel.classList.add('hidden');
+
+  document.getElementById('brainrot-ap-send').onclick=async()=>{
+    const secret=document.getElementById('brainrot-ap-password').value.trim();
+    const id=document.getElementById('brainrot-ap-select').value;
+    const status=document.getElementById('brainrot-ap-status');
+
+    if(!secret){
+      status.textContent='Bitte Admin-Passwort eingeben.';
+      return;
+    }
+
+    status.textContent='Wird gesendet …';
+
+    try{
+      const giftId=`${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+      const response=await apiFetch('/api/broadcast',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          secret,
+          message:`[[BRAINROT_GIFT:${encodeURIComponent(id)}:${giftId}]]`
+        })
+      });
+
+      const result=await response.json();
+
+      if(!response.ok||!result.ok){
+        throw new Error(result.error||'Senden fehlgeschlagen.');
+      }
+
+      status.textContent='Gesendet!';
+    }catch(error){
+      status.textContent='Fehler: '+error.message;
+    }
+  };
+
+  let currentGift=null;
+
+  window.__showBrainrotGift=(id,giftId)=>{
+    if(localStorage.getItem('claimed-brainrot-gift:'+giftId))return;
+
+    const item=RECRUITS.find(r=>String(r.id)===String(id));
+    if(!item)return;
+
+    currentGift={id:item.id,giftId,name:item.name};
+    document.getElementById('brainrot-gift-title').textContent=
+      '🎁 '+item.name+' für dich!';
+    document.getElementById('brainrot-gift-text').textContent=
+      'Der Admin hat dir dieses Brainrot geschenkt.';
+    gift.classList.remove('hidden');
+  };
+
+  document.getElementById('brainrot-gift-claim').onclick=()=>{
+    if(!currentGift)return;
+
+    const {id,giftId,name}=currentGift;
+
+    if(!state.profile.roster.includes(id)){
+      state.profile.roster.push(id);
+      saveProfile();
+      toast(`${name} erhalten!`);
+    }else{
+      toast(`${name} ist schon in deinem Team.`);
+    }
+
+    localStorage.setItem('claimed-brainrot-gift:'+giftId,'1');
+    gift.classList.add('hidden');
+    currentGift=null;
+  };
+}
+
+function handleBrainrotGiftBroadcast(data){
+  if(!data?.active||typeof data.message!=='string')return;
+
+  const match=data.message.match(
+    /^\[\[BRAINROT_GIFT:([^:]+):([^\]]+)\]\]$/
+  );
+  if(!match)return;
+
+  let id;
+  try{id=decodeURIComponent(match[1]);}catch{return;}
+
+  if(window.__showBrainrotGift){
+    window.__showBrainrotGift(id,match[2]);
+  }
+}
+function pollBroadcast(){
+  let coinsPollRunning=false;
+  let checking=false;
+  async function check(){
+    if(checking)return;
+    checking=true;
+    try{
+      const response=await apiFetch('/api/broadcast'); 
+    
+      if(!response.ok)return;
+      const data=await response.json();
+      handleBrainrotGiftBroadcast(data);
+const isBrainrotGift=typeof data.message==='string'&&data.message.startsWith('[[BRAINROT_GIFT:');
+      const ticker=document.getElementById('broadcast-ticker');
+      const tickerText=document.getElementById('broadcast-text');
+      if(data.active&&data.message&&!isBrainrotGift){
+        if(ticker)ticker.classList.remove('hidden');
+        if(tickerText)tickerText.textContent=data.message;
+      }else if(ticker){
+        ticker.classList.add('hidden');
+      }
+      const boostResponse=await apiFetch('/api/boost');
+      if(boostResponse.ok){
+        const boostData=await boostResponse.json();
+        if(boostData.active)localStorage.setItem('admin-boost-until',String(boostData.until));
+        else localStorage.removeItem('admin-boost-until');
+      }
+      if(!coinsPollRunning){
+        coinsPollRunning=true;
+        try{
+          const coinsResponse=await apiFetch(`/api/coins?clientId=${encodeURIComponent(PLAYER_CLIENT_ID)}`);
+          if(coinsResponse.ok){
+            const coinsData=await coinsResponse.json();
+            if(coinsData.grant>0){
+              state.profile.coins+=coinsData.grant;
+              saveProfile();
+              toast(`+${coinsData.grant} COINS vom Admin!`);
+            }
+          }
+        }finally{
+          coinsPollRunning=false;
+        }
+      }
+    }catch{}finally{
+      checking=false;
+    }
+  }
+  const pollEl=document.getElementById('poll-popup');
+  const pollQ=document.getElementById('poll-question');
+  const pollBtnA=document.getElementById('poll-btn-a');
+  const pollBtnB=document.getElementById('poll-btn-b');
+  const pollResult=document.getElementById('poll-result');
+  const pollCloseBtn=document.getElementById('poll-close-btn');
+if(pollCloseBtn){
+  pollCloseBtn.onclick=()=>document.getElementById('poll-popup').classList.add('hidden');
+} 
+  let voted=false;
+  let pollChecking=false;
+  async function checkPoll(){
+    if(pollChecking)return;
+    pollChecking=true;
+    try{
+      const response=await apiFetch('/api/poll');
+      if(!response.ok)return;
+      const data=await response.json();
+      handleBrainrotGiftBroadcast(data);
+
+const isBrainrotGift=
+  typeof data.message==='string' &&
+  data.message.startsWith('[[BRAINROT_GIFT:');
+      if(data.active){
+        pollEl.classList.remove('hidden');
+        pollQ.textContent=data.question;
+        pollBtnA.textContent=data.optionA;
+        pollBtnB.textContent=data.optionB;
+        const total=data.votesA+data.votesB;
+        if(voted||total>0){
+          const percentA=total?Math.round(data.votesA/total*100):0;
+          const percentB=total?Math.round(data.votesB/total*100):0;
+          pollResult.textContent=`${data.optionA}: ${percentA}% | ${data.optionB}: ${percentB}%`;
+        }
+      }else{
+        pollEl.classList.add('hidden');
+        voted=false;
+        pollResult.textContent='';
+      }
+    }catch{}finally{
+      pollChecking=false;
+    }
+  }
+  if(pollBtnA)pollBtnA.onclick=async()=>{
+    if(voted)return;
+    voted=true;
+    const id=localStorage.getItem('PLATFORM_USER_ID')||'anon';
+    try{
+      await apiFetch('/api/poll/vote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({option:'A',voterId:id})});
+      checkPoll();
+    }catch{}
+  };
+  if(pollBtnB)pollBtnB.onclick=async()=>{
+    if(voted)return;
+    voted=true;
+    const id=localStorage.getItem('PLATFORM_USER_ID')||'anon';
+    try{
+      await apiFetch('/api/poll/vote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({option:'B',voterId:id})});
+      checkPoll();
+    }catch{}
+  };
+  window.addEventListener('online',()=>{
+    updateApiConnection(true);
+    check();
+    checkPoll();
+  });
+  checkPoll();
+  setInterval(checkPoll,5000);
+  check();
+  setInterval(check,5000);
+}
+function initAdminPanel() {
+  const btn = document.getElementById('admin-open-btn');
+  const panel = document.getElementById('admin-panel');
+  const closeBtn = document.getElementById('admin-close-btn');
+  const sendBtn = document.getElementById('admin-send-btn');
+  const clearBtn = document.getElementById('admin-clear-btn');
+  const msgInput = document.getElementById('admin-msg');
+  const pwInput = document.getElementById('admin-pw');
+  const statusEl = document.getElementById('admin-status');
+  const boostBtn = document.getElementById('admin-boost-btn');
+  const distBtn = document.getElementById('admin-dist-btn');
+  const boostStatus = document.getElementById('admin-boost-status');
+
+  if (!btn || !panel) return;
+  if (btn.dataset.adminReady === '1') return;
+  btn.dataset.adminReady = '1';
+
+  btn.classList.remove('hidden');
+
+  btn.onclick = () => {
+    panel.classList.remove('hidden');
+    panel.style.display = 'flex';
+  };
+
+  if (closeBtn) {
+    closeBtn.onclick = () => {
+      panel.classList.add('hidden');
+      panel.style.display = '';
+    };
+  }
+
+  const ADMIN_PW = 'green1601mybest';
+  const BOOST_KEY = 'admin-boost-until';
+
+let luckBoostMultiplier = 1;
+  function checkBoost() {
+    if (!boostStatus) return;
+
+    const until = parseInt(localStorage.getItem(BOOST_KEY) || '0');
+
+    if (Date.now() < until) {
+      const rem = Math.ceil((until - Date.now()) / 1000);
+      boostStatus.textContent = '✅ 5× aktiv, noch ' + rem + 's';
+      setTimeout(checkBoost, 1000);
+    } else {
+      boostStatus.textContent = '';
+    }
+  }
+
+  checkBoost();
+
+  window.__boostActive = () =>
+    Date.now() < parseInt(localStorage.getItem(BOOST_KEY) || '0'); function activateLuckBoost(mult){
+  localStorage.setItem('luck-boost-until', String(Date.now()+120000));
+  localStorage.setItem('luck-boost-mult', String(mult));
+  }
+const luck6Btn=document.getElementById('luck-6-btn');
+const luck8Btn=document.getElementById('luck-8-btn');
+const codeCreateInput=document.getElementById('code-create-input');
+const codeLimitInput=document.getElementById('code-limit-input');
+const codeCreateBtn=document.getElementById('code-create-btn');
+const codeAdminStatus=document.getElementById('code-admin-status');
+if(codeCreateBtn)codeCreateBtn.onclick=async()=>{
+  if(pwInput.value.trim()!==ADMIN_PW){
+    codeAdminStatus.textContent='❌ Falsches Passwort.';
+    return;
+  }
+
+  const code=codeCreateInput.value.trim();
+  const limit=parseInt(codeLimitInput.value);
+
+  if(!code||!limit||limit<1){
+    codeAdminStatus.textContent='❌ Code und Limit eingeben.';
+    return;
+  }
+
+  codeAdminStatus.textContent='⏳ Code wird für alle Spieler gespeichert …';
+  codeCreateBtn.disabled=true;
+  try{
+    const legacyCodes=JSON.parse(localStorage.getItem('redeem-codes')||'{}');
+    if(legacyCodes&&typeof legacyCodes==='object'&&!Array.isArray(legacyCodes)){
+      const importResponse=await apiFetch('/api/codes/import',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({secret:pwInput.value.trim(),codes:legacyCodes})
+      });
+      const importResult=await importResponse.json();
+      if(!importResponse.ok)throw new Error(importResult.error||'Alte Codes konnten nicht übernommen werden.');
+    }
+    const response=await apiFetch('/api/codes',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({secret:pwInput.value.trim(),code,limit})
+    });
+    const result=await response.json();
+    if(!response.ok)throw new Error(result.error||'Code konnte nicht erstellt werden.');
+    codeAdminStatus.textContent=`✅ CODE ERSTELLT\n${result.code}\nEinlösungen: ${result.used} / ${result.limit}`;
+    codeCreateInput.value='';
+    codeLimitInput.value='';
+  }catch(error){
+    codeAdminStatus.textContent=`❌ ${error.message}`;
+  }finally{
+    codeCreateBtn.disabled=false;
+  }
+};
+if(luck6Btn)luck6Btn.onclick=()=>{
+  if(pwInput.value.trim()!==ADMIN_PW){
+    statusEl.textContent='❌ Falsches Passwort.';
+    return;
+  }
+  activateLuckBoost(6);
+};
+
+if(luck8Btn)luck8Btn.onclick=()=>{
+  if(pwInput.value.trim()!==ADMIN_PW){
+    statusEl.textContent='❌ Falsches Passwort.';
+    return;
+  }
+  activateLuckBoost(8);
+};
+  setInterval(()=>{
+  const until=parseInt(localStorage.getItem('luck-boost-until')||'0');
+  const mult=parseInt(localStorage.getItem('luck-boost-mult')||'1');
+
+  if(Date.now()<until){
+    const rem=Math.ceil((until-Date.now())/1000);
+    const time=`${Math.floor(rem/60)}:${String(rem%60).padStart(2,'0')}`;
+
+    if(luck6Btn)luck6Btn.textContent=mult===6?`6× Luck — ${time}`:'6× Luck';
+    if(luck8Btn)luck8Btn.textContent=mult===8?`8× Luck — ${time}`:'8× Luck';
+  }else{
+    if(luck6Btn)luck6Btn.textContent='6× Luck';
+    if(luck8Btn)luck8Btn.textContent='8× Luck';
+  }
+},1000);
+  if (boostBtn) {
+    boostBtn.onclick = async () => {
+      if (pwInput.value.trim() !== ADMIN_PW) {
+        statusEl.textContent = '❌ Falsches Passwort.';
+        return;
+      }
+
+      try {
+        const res = await apiFetch('/api/boost', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            secret: pwInput.value.trim()
+          })
+        });
+
+        const d = await res.json();
+
+        if (d.ok) {
+          localStorage.setItem(
+            BOOST_KEY,
+            String(Date.now() + 180000)
+          );
+          boostStatus.textContent = '✅ 5× aktiv, 3 Minuten!';
+          statusEl.textContent = '';
+          checkBoost();
+        } else {
+          statusEl.textContent = '❌ ' + d.error;
+        }
+      } catch (e) {
+        statusEl.textContent = '❌ Fehler: ' + e.message;
+      }
+    };
+  }
+
+  if (distBtn) {
+    distBtn.onclick = async () => {
+      if (pwInput.value.trim() !== ADMIN_PW) {
+        statusEl.textContent = '❌ Falsches Passwort.';
+        return;
+      }
+
+      try {
+        const res = await apiFetch('/api/coins', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            secret: pwInput.value.trim()
+          })
+        });
+
+        const d = await res.json();
+
+        statusEl.textContent = d.ok
+          ? d.recipients>0
+            ? `✅ 200 Coins an ${d.recipients} aktive Spieler gesendet!`
+            : '⚠️ Keine Spieler aktiv verbunden. Bitte erneut versuchen, wenn sie im Spiel sind.'
+          : '❌ ' + d.error;
+      } catch (e) {
+        statusEl.textContent = '❌ Fehler: ' + e.message;
+      }
+    };
+  }
+
+  async function post(method) {
+    const secret = pwInput.value.trim();
+    const message = msgInput.value.trim();
+
+    if (!secret) {
+      statusEl.textContent = '❌ Passwort eingeben.';
+      return;
+    }
+
+    if (method === 'POST' && !message) {
+      statusEl.textContent = '❌ Nachricht eingeben.';
+      return;
+    }
+
+    statusEl.textContent = '…';
+
+    try {
+      const r = await apiFetch('/api/broadcast', {
+        method,
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message,
+          secret
+        })
+      });
+
+      const d = await r.json();
+
+      if (d.ok) {
+        statusEl.textContent =
+          method === 'DELETE'
+            ? '✅ Nachricht gelöscht.'
+            : '✅ Gesendet!';
+
+        if (method !== 'DELETE') {
+          msgInput.value = '';
+        }
+      } else {
+        statusEl.textContent = '❌ ' + d.error;
+      }
+    } catch (e) {
+      statusEl.textContent = '❌ Fehler: ' + e.message;
+    }
+  }
+
+  if (sendBtn) sendBtn.onclick = () => post('POST');
+  if (clearBtn) clearBtn.onclick = () => post('DELETE');
+
+  const pollQInput = document.getElementById('poll-question-input');
+  const pollOptA = document.getElementById('poll-option-a');
+  const pollOptB = document.getElementById('poll-option-b');
+  const pollStartBtn = document.getElementById('poll-start-btn');
+  const pollStopBtn = document.getElementById('poll-stop-btn');
+  const pollAdminStatus = document.getElementById('poll-admin-status');
+
+  if (pollStartBtn) {
+    pollStartBtn.onclick = async () => {
+      if (pwInput.value.trim() !== ADMIN_PW) {
+        pollAdminStatus.textContent = '❌ Falsches Passwort.';
+        return;
+      }
+
+      const q = pollQInput.value.trim();
+      const a = pollOptA.value.trim();
+      const b = pollOptB.value.trim();
+
+      if (!q || !a || !b) {
+        pollAdminStatus.textContent = '❌ Alle Felder ausfüllen.';
+        return;
+      }
+
+      try {
+        const res = await apiFetch('/api/poll/start', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            secret: pwInput.value.trim(),
+            question: q,
+            optionA: a,
+            optionB: b
+          })
+        });
+
+        const d = await res.json();
+
+        pollAdminStatus.textContent = d.ok
+          ? '✅ Umfrage gestartet!'
+          : '❌ ' + d.error;
+      } catch (e) {
+        pollAdminStatus.textContent = '❌ Fehler: ' + e.message;
+      }
+    };
+  }
+
+  if (pollStopBtn) {
+    pollStopBtn.onclick = async () => {
+      if (pwInput.value.trim() !== ADMIN_PW) {
+        pollAdminStatus.textContent = '❌ Falsches Passwort.';
+        return;
+      }
+
+      try {
+        const res = await apiFetch('/api/poll/stop', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            secret: pwInput.value.trim()
+          })
+        });
+
+        const d = await res.json();
+
+        pollAdminStatus.textContent = d.ok
+          ? '✅ Umfrage gestoppt!'
+          : '❌ ' + d.error;
+      } catch (e) {
+        pollAdminStatus.textContent = '❌ Fehler: ' + e.message;
+      }
+    };
+  }
+}function bindUI(){ $('start-button').onclick=()=>{show('club-screen');renderClub();if(audio)audio.playBGM(ASSETS.bgm);} ;const eventAreaBtn=document.getElementById('event-area-btn'); const eventAreaPanel=document.getElementById('event-area-panel');const eventAreaClose=document.getElementById('event-area-close');if(eventAreaBtn&&eventAreaPanel){
+  eventAreaBtn.onclick=enterEventPlatform;
+};if(eventAreaClose&&eventAreaPanel)eventAreaClose.onclick=()=>eventAreaPanel.classList.add('hidden');const eventArenaBack=document.getElementById('event-arena-back');if(eventArenaBack)eventArenaBack.onclick=leaveEventPlatform;$('play-bot').onclick=beginMatch;$('create-room').onclick=createRoom;$('join-room').onclick=joinRoom;$('hatch-button').onclick=()=>hatch('sticker');const fuseButton = $('halloween-fuse-button');
+if (fuseButton) fuseButton.onclick = fuseHalloween;
+
+const fuseBack = $('halloween-fuse-back');
+if (fuseBack) fuseBack.onclick = () => show('club-screen');$('legendary-hatch-button').onclick=()=>hatch('legendary');startCountdown();$('close-hatch').onclick=()=>$('hatch-modal').classList.add('hidden');$('back-club').onclick=()=>{show('club-screen');renderClub();};$('exit-match').onclick=()=>{state.playing=false;show('club-screen');renderClub();};addEventListener('keydown',e=>{if(['Space','KeyQ'].includes(e.code))e.preventDefault();keys.add(e.code);});addEventListener('keyup',e=>keys.delete(e.code)); initTouch(); initBrainrotAP();
+pollBroadcast();
+ const redeemCodeInput=document.getElementById('redeem-code-input');
+ const redeemCodeBtn=document.getElementById('redeem-code-btn');
+ const redeemCodeStatus=document.getElementById('redeem-code-status');
+ if(redeemCodeBtn&&redeemCodeInput&&redeemCodeStatus)redeemCodeBtn.onclick=async()=>{
+   const code=redeemCodeInput.value.trim();
+   if(!code){
+     redeemCodeStatus.textContent='❌ Bitte einen Code eingeben.';
+     return;
+   }
+   redeemCodeBtn.disabled=true;
+   redeemCodeStatus.textContent='⏳ Code wird geprüft …';
+   try{
+     const response=await apiFetch('/api/redeem',{
+       method:'POST',
+       headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({code})
+     });
+     const result=await response.json();
+     if(!response.ok)throw new Error(result.error||'Code konnte nicht eingelöst werden.');
+     state.profile.coins+=Number(result.coins)||1000;
+     saveProfile();
+     redeemCodeStatus.textContent='✅ 1.000 Coins erhalten!';
+     redeemCodeInput.value='';
+   }catch(error){
+     redeemCodeStatus.textContent=`❌ ${error.message}`;
+   }finally{
+     redeemCodeBtn.disabled=false;
+   }
+ };
+
+  
+initAdminPanel(); }
+function initEventTeaser(){
+  const panel=document.getElementById('event-area-panel');
+  if(!panel||panel.dataset.teaserReady==='1')return;
+  panel.dataset.teaserReady='1';
+
+  const title=panel.querySelector('h2');
+  const oldP=panel.querySelector('p');
+  const oldSmall=panel.querySelector('small');
+
+  if(title)title.textContent='🎪 EVENT AREA';
+  if(oldP)oldP.remove();
+  if(oldSmall)oldSmall.remove();
+
+  const teaser=document.createElement('div');
+  teaser.innerHTML=`
+    <p style="font-weight:900;font-size:18px;margin:8px 0 10px;">🔒 NEXT EVENT — COMING SOON</p>
+    <p id="next-event-countdown" style="font-weight:900;margin:8px 0;"></p>
+    <div style="margin-top:18px;padding:14px;border:1px solid rgba(255,255,255,.14);border-radius:14px;background:rgba(255,255,255,.05);">
+      <b>🤫 SECRET HINT</b>
+      <p style="margin:8px 0 0;opacity:.8;">Nicht jedes Match wird für immer auf demselben Platz gespielt...</p>
+    </div>
+    <button id="event-arena-enter" class="primary" style="width:100%;margin-top:16px;">ARENA BETRETEN</button>
+  `;
+  panel.appendChild(teaser);
+  teaser.querySelector('#event-arena-enter').onclick=enterEventPlatform;
+
+  const el=document.getElementById('next-event-countdown');
+  const end=new Date('2026-10-08T16:30:00');
+
+  function tick(){
+    const diff=end-new Date();
+
+    if(diff<=0){
+      el.textContent='🔥 EVENT IST LIVE!';
+      return;
+    }
+
+    const d=Math.floor(diff/86400000);
+    const h=Math.floor((diff%86400000)/3600000);
+    const m=Math.floor((diff%3600000)/60000);
+    const s=Math.floor((diff%60000)/1000);
+
+    el.textContent=`Start in ${d}T ${h}Std ${m}Min ${s}Sek`;
+  }
+
+  tick();
+  setInterval(tick,1000);
+}
+function initDailyWheel(){
+  const openBtn=document.getElementById('wheel-open-btn');
+  const panel=document.getElementById('wheel-panel');
+  const closeBtn=document.getElementById('wheel-close-btn');
+  const spinBtn=document.getElementById('wheel-spin-btn');
+  const wheel=document.querySelector('.wheel-inner');
+  const result=document.getElementById('wheel-result');
+
+  if(!openBtn||!panel||!closeBtn||!spinBtn||!wheel)return;
+
+  const today=new Date().toISOString().slice(0,10);
+  const lastSpin=localStorage.getItem('daily-wheel-date');
+
+  if(lastSpin===today){
+    spinBtn.disabled=true;
+    spinBtn.textContent='MORGEN WIEDER';
+    result.textContent='Heute schon gedreht!';
+  }
+
+  openBtn.onclick=()=>panel.classList.remove('hidden');
+  closeBtn.onclick=()=>panel.classList.add('hidden');
+
+  spinBtn.onclick=()=>{
+    if(localStorage.getItem('daily-wheel-date')===today)return;
+
+    const prizes=[50,100,50,1000,500,100];
+    const index=Math.floor(Math.random()*prizes.length);
+    const prize=prizes[index];
+
+    const turns=5+Math.floor(Math.random()*3);
+    const segment=360/prizes.length;
+    const target=turns*360+(360-(index*segment+segment/2));
+
+    wheel.style.transform=`rotate(${target}deg)`;
+    spinBtn.disabled=true;
+
+    setTimeout(()=>{
+      state.profile.coins+=prize;
+      saveProfile();
+
+      localStorage.setItem('daily-wheel-date',today);
+
+      result.textContent=`🎉 +${prize} COINS!`;
+      spinBtn.textContent='MORGEN WIEDER';
+      toast(`+${prize} COINS vom Glücksrad!`);
+    },4000);
+  };
+}function initTouch(){
+  const sty=document.createElement('style');
+  sty.textContent=`
+    #tc{position:fixed;inset:0;pointer-events:none;z-index:999;display:none;align-items:flex-end;justify-content:space-between;padding:0 18px 36px}
+    #tc.vis{display:flex}
+    .tcd{pointer-events:all;display:grid;grid-template:repeat(3,72px)/repeat(3,72px);gap:6px}
+    .tcd button{all:unset;display:flex;align-items:center;justify-content:center;border-radius:18px;background:rgba(255,255,255,.13);color:#fff;font-size:24px;font-weight:900;touch-action:none;-webkit-tap-highlight-color:transparent;border:2px solid rgba(255,255,255,.18);transition:background .07s,transform .07s}
+    .tcd button.on{background:rgba(82,214,164,.38);transform:scale(.93)}
+    .tcd .gap{pointer-events:none}
+    .tcr{pointer-events:all;display:flex;flex-direction:column;align-items:flex-end;gap:10px}
+    .tc-sw{all:unset;display:flex;align-items:center;justify-content:center;width:72px;height:72px;border-radius:18px;background:rgba(155,108,255,.25);color:#c7aaff;font:900 11px/1 inherit;letter-spacing:.05em;text-align:center;touch-action:none;-webkit-tap-highlight-color:transparent;border:2px solid rgba(155,108,255,.45);transition:background .07s,transform .07s}
+    .tc-sw.on{background:rgba(155,108,255,.55);transform:scale(.93)}
+    .tc-sp{all:unset;display:flex;align-items:center;justify-content:center;width:72px;height:72px;border-radius:18px;background:rgba(255,201,74,.18);color:#ffc94a;font:900 11px/1 inherit;letter-spacing:.05em;text-align:center;touch-action:none;-webkit-tap-highlight-color:transparent;border:2px solid rgba(255,201,74,.38);transition:background .07s,transform .07s}
+    .tc-sp.on{background:rgba(255,201,74,.42);transform:scale(.93)}
+    .tc-kick{all:unset;display:flex;align-items:center;justify-content:center;width:96px;height:96px;border-radius:50%;background:#52d6a4;color:#07142d;font:900 12px/1.3 inherit;letter-spacing:.04em;text-align:center;touch-action:none;-webkit-tap-highlight-color:transparent;box-shadow:0 0 28px rgba(82,214,164,.55);transition:transform .07s,filter .07s}
+    .tc-kick.on{transform:scale(.9);filter:brightness(1.2)}
+    @media(pointer:coarse){.control-card{display:none!important}}
+  `;
+  document.head.appendChild(sty);
+
+  const tc=document.createElement('div');
+  tc.id='tc';
+  tc.innerHTML=`
+    <div class="tcd">
+      <div class="gap"></div><button data-k="KeyW">▲</button><div class="gap"></div>
+      <button data-k="KeyA">◄</button><div class="gap"></div><button data-k="KeyD">►</button>
+      <div class="gap"></div><button data-k="KeyS">▼</button><div class="gap"></div>
+    </div>
+    <div class="tcr">
+      <button class="tc-sw" data-k="KeyQ" data-once>SWITCH<br>⇄</button>
+      <button class="tc-sp" data-k="ShiftLeft">SPRINT<br>⚡</button>
+      <button class="tc-kick" data-k="Space" data-once>⚽<br>KICK</button>
+    </div>
+  `;
+  document.body.appendChild(tc);
+
+  const matchEl=$('match-screen');
+  new MutationObserver(()=>{
+    tc.classList.toggle('vis',!matchEl.classList.contains('hidden'));
+  }).observe(matchEl,{attributes:true,attributeFilter:['class']});
+
+  const live=new Map();
+
+  function btnAt(x,y){
+    return document.elementFromPoint(x,y)?.closest('[data-k]');
+  }
+  function press(btn){
+    if(!btn)return;
+    keys.add(btn.dataset.k);
+    btn.classList.add('on');
+    if('once' in btn.dataset){
+      setTimeout(()=>{keys.delete(btn.dataset.k);btn.classList.remove('on');},200);
+    }
+  }
+  function release(btn){
+    if(!btn||'once' in btn.dataset)return;
+    keys.delete(btn.dataset.k);
+    btn.classList.remove('on');
+  }
+
+  tc.addEventListener('touchstart',e=>{
+    e.preventDefault();
+    for(const t of e.changedTouches){
+      const btn=btnAt(t.clientX,t.clientY);
+      live.set(t.identifier,btn||null);
+      press(btn);
+    }
+  },{passive:false});
+
+  tc.addEventListener('touchmove',e=>{
+    e.preventDefault();
+    for(const t of e.changedTouches){
+      const old=live.get(t.identifier);
+      const cur=btnAt(t.clientX,t.clientY)||null;
+      if(old===cur)continue;
+      release(old);
+      live.set(t.identifier,cur);
+      press(cur);
+    }
+  },{passive:false});
+
+  tc.addEventListener('touchend',e=>{
+    e.preventDefault();
+    for(const t of e.changedTouches){
+      release(live.get(t.identifier));
+      live.delete(t.identifier);
+    }
+  },{passive:false});
+
+  tc.addEventListener('touchcancel',e=>{
+    for(const t of e.changedTouches){
+      release(live.get(t.identifier));
+      live.delete(t.identifier);
+    }
+  });
+}
+function initChristmasIntro(){
+  const screen = document.getElementById('loading-screen');
+  if(!screen || screen.dataset.christmasIntro === '1') return;
+  screen.dataset.christmasIntro = '1';
+
+  const style = document.createElement('style');
+  style.textContent = `
+    .bfc-snow-layer{
+      position:fixed;
+      inset:0;
+      overflow:hidden;
+      pointer-events:none;
+      z-index:9998;
+    }
+    .bfc-snowflake{
+      position:absolute;
+      top:-30px;
+      left:var(--x);
+      color:white;
+      opacity:var(--opacity);
+      font-size:var(--size);
+      animation:bfcSnowFall var(--duration) linear var(--delay) infinite;
+    }
+    @keyframes bfcSnowFall{
+      to{
+        transform:translate3d(var(--drift),110vh,0) rotate(360deg);
+      }
+    }
+    .bfc-santa-fly{
+      position:fixed;
+      left:-180px;
+      top:16%;
+      z-index:9999;
+      font-size:clamp(42px,8vw,76px);
+      white-space:nowrap;
+      pointer-events:none;
+      animation:bfcSantaFly 11s ease-in-out 1.5s 1 both;
+    }
+    @keyframes bfcSantaFly{
+      0%{transform:translateX(0) translateY(0) rotate(-4deg)}
+      50%{transform:translateX(55vw) translateY(-28px) rotate(2deg)}
+      100%{transform:translateX(calc(100vw + 220px)) translateY(12px) rotate(-2deg)}
+    }
+  `;
+  document.head.appendChild(style);
+
+  const snow = document.createElement('div');
+  snow.className = 'bfc-snow-layer';
+
+  for(let i=0;i<40;i++){
+    const flake = document.createElement('span');
+    flake.className = 'bfc-snowflake';
+    flake.textContent = '❄';
+    flake.style.setProperty('--x',`${Math.random()*100}%`);
+    flake.style.setProperty('--size',`${10+Math.random()*16}px`);
+    flake.style.setProperty('--opacity',`${0.4+Math.random()*0.6}`);
+    flake.style.setProperty('--duration',`${6+Math.random()*9}s`);
+    flake.style.setProperty('--delay',`${-Math.random()*12}s`);
+    flake.style.setProperty('--drift',`${Math.random()*100-50}px`);
+    snow.appendChild(flake);
+  }
+
+  screen.appendChild(snow);
+
+  const santa = document.createElement('div');
+  santa.className = 'bfc-santa-fly';
+  santa.textContent = '🎅🛷';
+  screen.appendChild(santa);
+
+  santa.addEventListener('animationend',()=>santa.remove());
+}
+initChristmasIntro();
+initAdminPanel();
+init();
+function initBananiniEgg(){
+  const panel = document.querySelector('.hatch-panel');
+  if(!panel) return;
+
+  const egg = document.createElement('div');
+  egg.className = 'legendary-egg';
+  egg.id = 'bananini-egg';
+
+  egg.innerHTML = `
+    <b>🍌 BANANINI EGG</b>
+    <small>35.000 Coins • Garantiert Bananini</small>
+    <p id="bananini-countdown"></p>
+    <button id="bananini-hatch-button" class="gold">
+      HATCH BANANINI EGG — 35.000
+    </button>
+  `;
+
+  panel.appendChild(egg);
+
+  const countdown = document.getElementById('bananini-countdown');
+  const button = document.getElementById('bananini-hatch-button');
+
+  function updateBananiniEgg(){
+    const remaining = BANANINI_EGG_END - new Date();
+
+    if(remaining <= 0){
+      egg.remove();
+      return;
+    }
+
+    const days = Math.floor(remaining / 86400000);
+    const hours = Math.floor((remaining % 86400000) / 3600000);
+    const minutes = Math.floor((remaining % 3600000) / 60000);
+
+    countdown.textContent = `Noch ${days}T ${hours}Std ${minutes}Min`;
+  }
+
+  updateBananiniEgg();
+  setInterval(updateBananiniEgg, 60000);
+
+  button.onclick = ()=>{
+    if(state.profile.coins < 35000){
+      alert('Nicht genug Coins!');
+      return;
+    }
+
+    state.profile.coins -= 35000;
+    state.profile.roster.push('bananini');
+    saveProfile();
+
+    document.getElementById('coin-count').textContent =
+      state.profile.coins.toLocaleString();
+
+    alert('🍌 BANANINI erhalten!');
+  };
+}
+
+initBananiniEgg();

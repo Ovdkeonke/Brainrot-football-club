@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Brainrot Football Club</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <main id="app">
+    <canvas id="game"></canvas>
+    <div id="overlay">
+
+      <section id="loading-screen" class="screen">
+        <p class="eyebrow">NEON STICKER STADIUM</p>
+        <h1>BRAINROT<br><span>FOOTBALL CLUB</span></h1>
+        <div class="loading-track"><i id="loading-bar"></i></div>
+        <p id="loading-text">Warming up the mascots…</p>
+        <button id="start-button" class="primary hidden">ENTER THE STADIUM</button>
+        <button id="retry-load-button" class="secondary hidden">ERNEUT VERBINDEN</button>
+        <div id="event-countdown"></div>
+      </section>
+
+      <button id="event-area-btn" class="event-area-btn">🎪 EVENT ARENA</button>
+      <div id="event-area-panel" class="event-area-panel hidden">
+        <button id="event-area-close" aria-label="Event-Bereich schließen">✕</button>
+        <h2>🎪 EVENT ARENA</h2>
+        <p>NO EVENT ACTIVE</p>
+        <small>Coming soon...</small>
+      </div>
+      <section id="event-arena-screen" class="screen event-arena-screen hidden">
+        <div class="event-arena-card">
+          <p class="eyebrow">BRAINROT FOOTBALL CLUB</p>
+          <h2>🎪 EVENT ARENA</h2>
+          <p>Du bist in der Event Arena.</p>
+          <button id="event-arena-back" class="primary">ZURÜCK ZUM CLUB</button>
+        </div>
+      </section>
+<section id="halloween-fuse-screen" class="screen hidden">
+  <div class="event-arena-card">
+    <p class="eyebrow">🎃 HALLOWEEN EVENT</p>
+    <h2>👻 FUSE MACHINE</h2>
+    <p>Fuse deine Brainrots und gewinne einen Halloween-Brainrot!</p>
+    <p>Kosten: <b>10.000 Coins</b></p>
+    <div id="halloween-fuse-result"></div>
+    <button id="halloween-fuse-button" class="gold">FUSEN — 10.000 COINS</button>
+    <button id="halloween-fuse-back" class="primary">ZURÜCK ZUM CLUB</button>
+  </div>
+</section>
+      <section id="club-screen" class="screen hidden">
+        <header class="topbar">
+          <div><p class="eyebrow">YOUR CLUB</p><h2 id="club-name">MINT MAYHEM FC</h2></div>
+          <div class="coin-bank"><span>✦</span><b id="coin-count">0</b><small>COINS</small></div>
+        </header> 
+        <button id="open-halloween-fuse" class="gold"
+  onclick="document.getElementById('club-screen').classList.add('hidden');document.getElementById('halloween-fuse-screen').classList.remove('hidden')">
+  🎃 HALLOWEEN FUSE MACHINE
+        </button>
+        <div class="club-grid">
+          <article class="panel roster-panel">
+            <div class="panel-title"><span>STARTING 3</span><small>Pick your tactical trio</small></div>
+            <div id="lineup-slots" class="lineup-slots"></div>
+            <p id="team-bonus" class="team-bonus"></p>
+            <div class="action-row"><button id="play-bot" class="primary">PLAY QUICK MATCH</button><button id="create-room" class="secondary">CREATE ONLINE ROOM</button></div>
+            <div class="join-row"><input id="room-code" maxlength="5" placeholder="ROOM CODE" /><button id="join-room" class="secondary">JOIN</button></div>
+            <p id="online-status" class="status-text">Quick Match plays against the Neon Ninjas. Online rooms use a live two-player channel when another player joins.</p>
+          </article>
+          <article class="panel hatch-panel">
+            <div class="panel-title"><span>EGG LAB</span><small>Fresh recruits await</small></div>
+            <div id="egg-stage" class="egg-stage"><div class="egg-orb">?</div></div>
+            <p><b>Sticker Egg</b><br><small>Costs 70 coins • Common 65% • Rare 28% • Epic 7%</small></p>
+            <button id="hatch-button" class="gold">HATCH STICKER EGG — 70</button>
+            <div class="legendary-egg">
+              <b>LEGENDARY VAULT EGG</b>
+              <small>Costs 900 coins • Legendary chance 3%</small>
+              <button id="legendary-hatch-button" class="legendary">HATCH LEGENDARY EGG — 900</button>
+            </div>
+          </article> <article class="panel panel-redeem">
+  <div class="panel-title">
+    <span>REDEEM CODE</span>
+    <small>Get 1,000 coins</small>
+  </div>
+  <div class="join-row">
+    <input id="redeem-code-input" type="text" placeholder="CODE EINGEBEN" />
+    <button id="redeem-code-btn" class="secondary">EINLÖSEN</button>
+  </div>
+  <p id="redeem-code-status" class="status-text"></p>
+          </article>
+          <article class="panel collection-panel">
+            <div class="panel-title"><span>YOUR BRAINROTS</span><small id="collection-count">0 recruits</small></div>
+            <div id="collection" class="collection"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="match-screen" class="hidden">
+        <header class="match-hud">
+          <div class="team-score"><b id="blue-score">0</b><span>MINT MAYHEM</span></div>
+          <div class="timer-wrap"><strong id="match-timer">2:30</strong><small id="match-message">KICK OFF!</small></div>
+          <div class="team-score rival"><b id="red-score">0</b><span>NEON NINJAS</span></div>
+        </header>
+        <aside class="control-card"><b id="active-name">CAPTAIN</b><span id="active-role">MIDFIELDER</span><p>WASD move · <kbd>Space</kbd> pass/shoot · <kbd>Q</kbd> switch · <kbd>Shift</kbd> sprint</p></aside>
+        <button id="exit-match" class="exit-match">QUIT MATCH</button>
+        <div id="goal-banner" class="goal-banner hidden">GOOOOAL!</div>
+      </section>
+
+      <section id="result-screen" class="screen hidden">
+        <p id="result-kicker" class="eyebrow">MATCH COMPLETE</p>
+        <h2 id="result-title">YOU WIN!</h2>
+        <p id="result-score" class="result-score">3 — 1</p>
+        <div class="reward-card"><span>✦</span><div><b id="reward-coins">+45 COINS</b><small id="reward-detail">Victory bonus included</small></div></div>
+        <button id="back-club" class="primary">RETURN TO CLUB</button>
+      </section>
+
+      <section id="hatch-modal" class="modal hidden">
+        <div class="modal-card"><p class="eyebrow">NEW BRAINROT!</p><div id="hatch-reveal" class="hatch-reveal">?</div><h2 id="hatch-name">MINTY</h2><p id="hatch-details">RARE • MIDFIELDER</p><p id="hatch-trait">Trait</p><button id="close-hatch" class="primary">ADD TO CLUB</button></div>
+      </section>
+
+      <div id="toast" class="toast hidden"></div> <div id="daily-wheel">
+  <button id="wheel-open-btn">🎡</button>
+  <div id="wheel-panel" class="hidden">
+    <button id="wheel-close-btn">✕</button>
+    <h2>DAILY LUCKY WHEEL</h2>
+    <div id="wheel">
+      <div class="wheel-pointer">▼</div>
+      <div class="wheel-inner">
+        <span>50</span>
+        <span>100</span>
+        <span>50</span>
+        <span>1000</span>
+        <span>500</span>
+        <span>100</span>
+      </div>
+    </div>
+    <p id="wheel-result">1 Dreh pro Tag</p>
+    <button id="wheel-spin-btn" class="gold">DREHEN!</button>
+  </div>
+      </div>
+      <div id="event-bonus" class="event-bonus hidden">🔴 EVENT LIVE — 2× COINS &amp; 2× LUCK — <span id="event-bonus-timer"></span></div>
+      <div id="broadcast-ticker" class="broadcast-ticker hidden"><span id="broadcast-text"></span></div> <div id="poll-popup" class="hidden" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1a1a2e;border:2px solid #f0c040;border-radius:16px;padding:24px;z-index:9999;min-width:280px;text-align:center;color:white;font-family:sans-serif;"><div id="poll-question" style="font-size:18px;font-weight:bold;margin-bottom:20px;"></div><div style="display:flex;gap:12px;justify-content:center;"><button id="poll-btn-a" style="flex:1;padding:12px;background:#2ecc71;border:none;border-radius:10px;color:white;font-size:16px;font-weight:bold;cursor:pointer;"></button><button id="poll-btn-b" style="flex:1;padding:12px;background:#e74c3c;border:none;border-radius:10px;color:white;font-size:16px;font-weight:bold;cursor:pointer;"></button></div><div id="poll-result" style="margin-top:16px;font-size:14px;opacity:0.8;"></div></div> <div id="poll-popup" class="hidden" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1a1a2e;border:2px solid #f0c040;border-radius:16px;padding:24px;z-index:9999;min-width:280px;text-align:center;color:white;font-family:sans-serif;"><div id="poll-question" style="font-size:18px;font-weight:bold;margin-bottom:20px;"></div><div style="display:flex;gap:12px;justify-content:center;"><button id="poll-btn-a" style="flex:1;padding:12px;background:#2ecc71;border:none;border-radius:10px;color:white;font-size:16px;font-weight:bold;cursor:pointer;"></button><button id="poll-btn-b" style="flex:1;padding:12px;background:#e74c3c;border:none;border-radius:10px;color:white;font-size:16px;font-weight:bold;cursor:pointer;"></button></div><div id="poll-result" style="margin-top:16px;font-size:14px;opacity:0.8;"></div></div>
+    </div>
+  </main>
+  <script type="module" src="./src/main.js"></script>
+<div id="poll-popup" class="poll-popup hidden">
+  <div class="poll-card">
+    <button id="poll-close-btn">✕</button>
+    <h3>📊 UMFRAGE</h3>
+    <p id="poll-question"></p>
+    <button id="poll-btn-a"></button>
+    <button id="poll-btn-b"></button>
+    <p id="poll-result"></p>
+  </div>
+</div> </body>
+</html>
