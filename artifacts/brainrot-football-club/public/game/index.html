@@ -44,12 +44,26 @@
           <button id="event-arena-back" class="primary">ZURÜCK ZUM CLUB</button>
         </div>
       </section>
-
+<section id="halloween-fuse-screen" class="screen hidden">
+  <div class="event-arena-card">
+    <p class="eyebrow">🎃 HALLOWEEN EVENT</p>
+    <h2>👻 FUSE MACHINE</h2>
+    <p>Fuse deine Brainrots und gewinne einen Halloween-Brainrot!</p>
+    <p>Kosten: <b>10.000 Coins</b></p>
+    <div id="halloween-fuse-result"></div>
+    <button id="halloween-fuse-button" class="gold">FUSEN — 10.000 COINS</button>
+    <button id="halloween-fuse-back" class="primary">ZURÜCK ZUM CLUB</button>
+  </div>
+</section>
       <section id="club-screen" class="screen hidden">
         <header class="topbar">
           <div><p class="eyebrow">YOUR CLUB</p><h2 id="club-name">MINT MAYHEM FC</h2></div>
           <div class="coin-bank"><span>✦</span><b id="coin-count">0</b><small>COINS</small></div>
-        </header>
+        </header> 
+        <button id="open-halloween-fuse" class="gold"
+  onclick="document.getElementById('club-screen').classList.add('hidden');document.getElementById('halloween-fuse-screen').classList.remove('hidden')">
+  🎃 HALLOWEEN FUSE MACHINE
+        </button>
         <div class="club-grid">
           <article class="panel roster-panel">
             <div class="panel-title"><span>STARTING 3</span><small>Pick your tactical trio</small></div>

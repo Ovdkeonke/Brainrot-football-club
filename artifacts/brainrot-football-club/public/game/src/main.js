@@ -6,7 +6,7 @@ import { ASSETS, FACING, RECRUITS, DEFAULT_PROFILE } from './config.js';
 import AudioManager from './audio-manager.js';
 
 const $ = (id) => document.getElementById(id);
-const screens = ['loading-screen','club-screen','match-screen','result-screen','event-arena-screen'];
+const screens = ['loading-screen','club-screen','match-screen','result-screen','event-arena-screen','halloween-fuse-screen'];
 const GAME_ID = 'brainrot-football-club';
 const PLATFORM_USER_ID = '00000001';
 const localKey = `game-data:${PLATFORM_USER_ID}:${GAME_ID}:${window.__devMode ? 'profile-dev' : 'profile'}`;
@@ -170,8 +170,9 @@ function buildWorld(turf){
   eventPlatformRoot.visible = false;
   scene.add(eventPlatformRoot);
 
+  // Dunkler Konzertboden
   const mat = new THREE.MeshStandardMaterial({
-    color: 0x777777,
+    color: 0x29213f,
     roughness: 0.9,
     metalness: 0.05
   });
@@ -185,22 +186,167 @@ function buildWorld(turf){
   floor.receiveShadow = true;
   eventPlatformRoot.add(floor);
 
-  const borderMat = new THREE.MeshStandardMaterial({
-    color: 0x444444,
-    roughness: 0.8
+  // Konfetti auf dem Boden
+  const confettiColors = [
+    0xff3366, 0xffd700, 0x35eaff,
+    0x8cff66, 0xff8c24, 0xffffff
+  ];
+
+  const confettiGeometry = new THREE.BoxGeometry(0.28, 0.035, 0.16);
+
+  for(let i = 0; i < 65; i++){
+    const color = confettiColors[i % confettiColors.length];
+
+    const piece = new THREE.Mesh(
+      confettiGeometry,
+      new THREE.MeshStandardMaterial({
+        color,
+        roughness: 0.7
+      })
+    );
+
+    const x = ((i * 37) % 230) / 10 - 11.5;
+    const z = ((i * 53) % 340) / 10 - 17;
+
+    piece.position.set(x, 0.025, z);
+    piece.rotation.y = (i * 0.73) % Math.PI;
+    eventPlatformRoot.add(piece);
+  }
+
+  // Kleine Konzertbühne
+  const stageMat = new THREE.MeshStandardMaterial({
+    color: 0x54328c,
+    roughness: 0.6,
+    metalness: 0.2
   });
 
+  const stage = new THREE.Mesh(
+    new THREE.BoxGeometry(10, 0.6, 4),
+    stageMat
+  );
+
+  stage.position.set(0, 0.3, 0);
+  stage.castShadow = true;
+  stage.receiveShadow = true;
+  eventPlatformRoot.add(stage);
+
+  // Bühnenoberfläche
+  const stageTop = new THREE.Mesh(
+    new THREE.BoxGeometry(9.7, 0.12, 3.7),
+    new THREE.MeshStandardMaterial({ color: 0x9b65e8 })
+  );
+
+  stageTop.position.set(0, 0.66, 0);
+  eventPlatformRoot.add(stageTop);
+
+// Einfache graue Konzert-Rückwand
+const wall = new THREE.Mesh(
+  new THREE.BoxGeometry(14, 5, 0.35),
+  
+  new THREE.MeshStandardMaterial({
+  color: 0x7020FF,
+  emissive: 0x7020FF,
+  emissiveIntensity: 0.8
+})
+);
+
+wall.position.set(0, 2.5, -2.4);
+eventPlatformRoot.add(wall);
+
+// BFC LIVE Schrift
+const liveCanvas = document.createElement('canvas');
+liveCanvas.width = 1024;
+liveCanvas.height = 256;
+
+const ctx = liveCanvas.getContext('2d');
+ctx.fillStyle = '#888888';
+ctx.fillRect(0, 0, 1024, 256);
+
+ctx.fillStyle = '#ffffff';
+ctx.font = 'bold 130px Arial';
+ctx.textAlign = 'center';
+ctx.textBaseline = 'middle';
+ctx.fillText('BFC LIVE', 512, 128);
+
+const liveTexture = new THREE.CanvasTexture(liveCanvas);
+
+const liveSign = new THREE.Mesh(
+  new THREE.PlaneGeometry(8, 2),
+  new THREE.MeshBasicMaterial({ map: liveTexture })
+);
+
+liveSign.position.set(0, 3, -2.21);
+eventPlatformRoot.add(liveSign);
+  
+  // Lautsprecher links und rechts
+  const speakerMat = new THREE.MeshStandardMaterial({
+    color: 0x171725,
+    roughness: 0.65
+  });
+
+  for(const x of [-5.5, 5.5]){
+    const speaker = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1.7, 1.1),
+      speakerMat
+    );
+
+    speaker.position.set(x, 0.85, 0);
+    speaker.castShadow = true;
+    eventPlatformRoot.add(speaker);
+  }
+// Löwe als Konzert-Star
+const concertLion = cloneAsset(mascotTemplate);
+concertLion.scale.setScalar(1.12);
+concertLion.position.set(0, 0.72, 0);
+eventPlatformRoot.add(concertLion);
+// Spotlight für das Maskottchen
+const spotlight = new THREE.SpotLight(
+  0xffffff,
+  3,
+  20,
+  Math.PI / 7,
+  0.4,
+  1
+);
+
+spotlight.position.set(0, 9, 3);
+spotlight.target.position.set(0, 0.72, 0);
+
+eventPlatformRoot.add(spotlight);
+eventPlatformRoot.add(spotlight.target);
+// Sichtbarer Lichtstrahl
+const beam = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.12, 2.0, 8.8, 32, 1, true),
+  new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.13,
+    depthWrite: false,
+    side: THREE.DoubleSide
+  })
+);
+
+beam.position.set(0, 4.86, 1.5);
+beam.quaternion.setFromUnitVectors(
+  new THREE.Vector3(0, 1, 0),
+  new THREE.Vector3(0, 8.28, 3).normalize()
+);
+
+eventPlatformRoot.add(beam);
+// Dunkler Rand
   const border = new THREE.Mesh(
     new THREE.BoxGeometry(25.8, 0.35, 38.8),
-    borderMat
+    new THREE.MeshStandardMaterial({ color: 0x191426 })
   );
 
   border.position.y = -0.62;
   border.receiveShadow = true;
   eventPlatformRoot.add(border);
 }
-
+let concertAudio = null;
+let concertMusicPlaying = false;
 function enterEventPlatform(){
+  initConcertMusicButton();
   if(!eventPlatformRoot){
     $('event-area-panel').classList.remove('hidden');
     initEventTeaser();
@@ -212,11 +358,66 @@ function enterEventPlatform(){
   if(matchRoot) matchRoot.visible = false;
   eventPlatformRoot.visible = true;
   show('event-arena-screen');
+
+}
+function initConcertMusicButton() {
+  const oldButton = document.getElementById('concert-music-toggle');
+  if (oldButton) oldButton.remove();
+
+  const button = document.createElement('button');
+  button.id = 'concert-music-toggle';
+  button.textContent = '▶ Konzertmusik starten';
+
+  button.style.position = 'fixed';
+  button.style.bottom = '90px';
+  button.style.right = '25px';
+  button.style.zIndex = '999999';
+  button.style.display = 'block';
+  button.style.visibility = 'visible';
+  button.style.opacity = '1';
+  button.style.background = '#7020FF';
+  button.style.color = 'white';
+  button.style.padding = '16px 22px';
+  button.style.border = '2px solid white';
+  button.style.borderRadius = '14px';
+  button.style.fontSize = '16px';
+  button.style.fontWeight = 'bold';
+
+  button.onclick = async () => {
+    if (!concertAudio) {
+      concertAudio = new Audio('./phonk.mp3');
+      concertAudio.loop = true;
+      concertAudio.volume = 0.55;
+    }
+
+    if (concertAudio.paused) {
+      try {
+        await concertAudio.play();
+        button.textContent = '⏸ Konzertmusik pausieren';
+      } catch (error) {
+        button.textContent = '▶ Konzertmusik starten';
+        toast('Musik konnte nicht gestartet werden.');
+      }
+    } else {
+      concertAudio.pause();
+      button.textContent = '▶ Konzertmusik starten';
+    }
+  };
+
+  document.body.appendChild(button);
 }
 function leaveEventPlatform(){
   if(eventPlatformRoot)eventPlatformRoot.visible=false;
   if(matchRoot)matchRoot.visible=true;
   show('club-screen');
+  renderClub();
+if (concertAudio) {
+  concertAudio.pause();
+  concertAudio.currentTime = 0;
+}
+
+const musicButton = document.getElementById('concert-music-toggle');
+if (musicButton) musicButton.remove();
 }
 function cloneAsset(template){ const o=template.clone(true); o.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;n.material=n.material.clone();}}); return o; }
 function addGoals(){ for(const z of [-18.7,18.7]){const g=cloneAsset(goalTemplate);g.scale.setScalar(2.25);g.position.set(0,0,z);g.rotation.y=z<0?0:Math.PI; matchRoot.add(g);} }
@@ -301,6 +502,50 @@ function toggleLineup(id){const line=state.profile.lineup;if(line.includes(id)){
    $('hatch-trait').textContent=duplicate?`Duplicate converted into ${legendary?250:22} bonus coins.`:r.trait;
    $('hatch-modal').classList.remove('hidden');
  }
+function fuseHalloween(){
+  const result=$('halloween-fuse-result');
+  if(state.profile.coins<10000){
+    toast('Du brauchst 10.000 Coins!');
+    return;
+  }
+
+  const until=parseInt(localStorage.getItem('luck-boost-until')||'0');
+  const luck=Date.now()<until
+    ?Math.max(1,parseInt(localStorage.getItem('luck-boost-mult')||'1'))
+    :1;
+
+  const ghost=RECRUITS.find(r=>r.name.toLowerCase()==='ghostly');
+  const pumpkin=RECRUITS.find(r=>r.name.toLowerCase()==='pumpkini');
+  const reaper=RECRUITS.find(r=>r.name.toLowerCase()==='reaper');
+
+  if(!ghost||!pumpkin||!reaper){
+    toast('Halloween-Brainrots fehlen in config.js!');
+    return;
+  }
+
+  const pool=[
+    {r:ghost,w:75},
+    {r:pumpkin,w:24*luck},
+    {r:reaper,w:3*luck}
+  ];
+
+  let roll=Math.random()*pool.reduce((s,x)=>s+x.w,0);
+  const chosen=pool.find(x=>(roll-=x.w)<0).r;
+
+  state.profile.coins-=10000;
+  const duplicate=state.profile.roster.includes(chosen.id);
+
+  if(duplicate){
+    state.profile.coins+=5000;
+    result.textContent=`🔁 ${chosen.name} doppelt! 5.000 Coins zurück.`;
+  }else{
+    state.profile.roster.push(chosen.id);
+    result.textContent=`🎃 Du hast ${chosen.name} erhalten!`;
+  }
+
+  saveProfile();
+  toast(duplicate?'Duplikat! 5.000 Coins zurück.':`${chosen.name} erhalten!`);
+}
 function createRoom(){const code=Math.random().toString(36).slice(2,7).toUpperCase();state.room=code;$('room-code').value=code;$('online-status').textContent=`Room ${code} created. Share the code with a friend. This playable build launches a bot stand-in if no second player is connected.`;toast(`Room ${code} created`);}function joinRoom(){const code=$('room-code').value.trim().toUpperCase();if(!code)return toast('Enter a five-character room code.');state.room=code;$('online-status').textContent=`Joined room ${code}. Waiting for host sync; launching a local rival for this build.`;toast(`Joined ${code}`);}
 function getEventState(){const LIVE=15*60*1000;const now=new Date();const day=now.getDay();const days=(day-4+7)%7;const last=new Date(now);last.setDate(now.getDate()-days);last.setHours(16,30,0,0);if(last>now)last.setDate(last.getDate()-7);const since=now-last;if(since<LIVE)return{live:true,remaining:LIVE-since};const next=new Date(last);next.setDate(last.getDate()+7);return{live:false,msUntil:next-now};}
 function isLive(){return getEventState().live;}
@@ -322,6 +567,168 @@ function startCountdown(){
     }
   }
   tick();setInterval(tick,1000);
+} 
+function initBrainrotAP(){
+  if(document.getElementById('brainrot-ap-open'))return;
+
+  const style=document.createElement('style');
+  style.textContent=`
+    #brainrot-ap-open{
+      position:fixed;top:65px;left:12px;z-index:10020;
+      padding:10px 13px;border:1px solid #72f5c1;
+      border-radius:12px;background:#102c32;color:#baffdf;
+      font-weight:900;cursor:pointer
+    }
+    #brainrot-ap-panel,#brainrot-gift-popup{
+      position:fixed;inset:0;z-index:10030;
+      display:flex;align-items:center;justify-content:center;
+      padding:16px;background:#020817d9
+    }
+    #brainrot-ap-panel.hidden,#brainrot-gift-popup.hidden{
+      display:none
+    }
+    .brainrot-ap-card{
+      width:min(420px,100%);padding:22px;
+      border:1px solid #62e8bd;border-radius:18px;
+      background:#101b30;color:white;font-family:inherit
+    }
+    .brainrot-ap-card input,.brainrot-ap-card select{
+      box-sizing:border-box;width:100%;margin:8px 0 12px;
+      padding:12px;border-radius:10px
+    }
+    .brainrot-ap-card button{
+      padding:11px 14px;border:0;border-radius:10px;
+      background:#69efbd;color:#08251c;
+      font-weight:900;cursor:pointer
+    }
+    #brainrot-ap-status{margin-top:12px}
+  `;
+  document.head.appendChild(style);
+
+  const open=document.createElement('button');
+  open.id='brainrot-ap-open';
+  open.textContent='🎁 Brainrot AP';
+
+  const panel=document.createElement('div');
+  panel.id='brainrot-ap-panel';
+  panel.className='hidden';
+
+  const options=RECRUITS.map(r=>
+    `<option value="${String(r.id).replace(/"/g,'&quot;')}">${r.name}</option>`
+  ).join('');
+
+  panel.innerHTML=`
+    <div class="brainrot-ap-card">
+      <h2>🎁 Brainrot an alle senden</h2>
+      <label>Admin-Passwort</label>
+      <input id="brainrot-ap-password" type="password">
+      <label>Brainrot auswählen</label>
+      <select id="brainrot-ap-select">${options}</select>
+      <button id="brainrot-ap-send">An alle senden</button>
+      <button id="brainrot-ap-close">Schließen</button>
+      <div id="brainrot-ap-status"></div>
+    </div>`;
+
+  const gift=document.createElement('div');
+  gift.id='brainrot-gift-popup';
+  gift.className='hidden';
+  gift.innerHTML=`
+    <div class="brainrot-ap-card">
+      <h2 id="brainrot-gift-title">🎁 Ein Geschenk!</h2>
+      <p id="brainrot-gift-text"></p>
+      <button id="brainrot-gift-claim">Beanspruchen</button>
+    </div>`;
+
+  document.body.append(open,panel,gift);
+
+  open.onclick=()=>panel.classList.remove('hidden');
+  document.getElementById('brainrot-ap-close').onclick=
+    ()=>panel.classList.add('hidden');
+
+  document.getElementById('brainrot-ap-send').onclick=async()=>{
+    const secret=document.getElementById('brainrot-ap-password').value.trim();
+    const id=document.getElementById('brainrot-ap-select').value;
+    const status=document.getElementById('brainrot-ap-status');
+
+    if(!secret){
+      status.textContent='Bitte Admin-Passwort eingeben.';
+      return;
+    }
+
+    status.textContent='Wird gesendet …';
+
+    try{
+      const giftId=`${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+      const response=await apiFetch('/api/broadcast',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          secret,
+          message:`[[BRAINROT_GIFT:${encodeURIComponent(id)}:${giftId}]]`
+        })
+      });
+
+      const result=await response.json();
+
+      if(!response.ok||!result.ok){
+        throw new Error(result.error||'Senden fehlgeschlagen.');
+      }
+
+      status.textContent='Gesendet!';
+    }catch(error){
+      status.textContent='Fehler: '+error.message;
+    }
+  };
+
+  let currentGift=null;
+
+  window.__showBrainrotGift=(id,giftId)=>{
+    if(localStorage.getItem('claimed-brainrot-gift:'+giftId))return;
+
+    const item=RECRUITS.find(r=>String(r.id)===String(id));
+    if(!item)return;
+
+    currentGift={id:item.id,giftId,name:item.name};
+    document.getElementById('brainrot-gift-title').textContent=
+      '🎁 '+item.name+' für dich!';
+    document.getElementById('brainrot-gift-text').textContent=
+      'Der Admin hat dir dieses Brainrot geschenkt.';
+    gift.classList.remove('hidden');
+  };
+
+  document.getElementById('brainrot-gift-claim').onclick=()=>{
+    if(!currentGift)return;
+
+    const {id,giftId,name}=currentGift;
+
+    if(!state.profile.roster.includes(id)){
+      state.profile.roster.push(id);
+      saveProfile();
+      toast(`${name} erhalten!`);
+    }else{
+      toast(`${name} ist schon in deinem Team.`);
+    }
+
+    localStorage.setItem('claimed-brainrot-gift:'+giftId,'1');
+    gift.classList.add('hidden');
+    currentGift=null;
+  };
+}
+
+function handleBrainrotGiftBroadcast(data){
+  if(!data?.active||typeof data.message!=='string')return;
+
+  const match=data.message.match(
+    /^\[\[BRAINROT_GIFT:([^:]+):([^\]]+)\]\]$/
+  );
+  if(!match)return;
+
+  let id;
+  try{id=decodeURIComponent(match[1]);}catch{return;}
+
+  if(window.__showBrainrotGift){
+    window.__showBrainrotGift(id,match[2]);
+  }
 }
 function pollBroadcast(){
   let coinsPollRunning=false;
@@ -330,12 +737,15 @@ function pollBroadcast(){
     if(checking)return;
     checking=true;
     try{
-      const response=await apiFetch('/api/broadcast');
+      const response=await apiFetch('/api/broadcast'); 
+    
       if(!response.ok)return;
       const data=await response.json();
+      handleBrainrotGiftBroadcast(data);
+const isBrainrotGift=typeof data.message==='string'&&data.message.startsWith('[[BRAINROT_GIFT:');
       const ticker=document.getElementById('broadcast-ticker');
       const tickerText=document.getElementById('broadcast-text');
-      if(data.active&&data.message){
+      if(data.active&&data.message&&!isBrainrotGift){
         if(ticker)ticker.classList.remove('hidden');
         if(tickerText)tickerText.textContent=data.message;
       }else if(ticker){
@@ -385,6 +795,11 @@ if(pollCloseBtn){
       const response=await apiFetch('/api/poll');
       if(!response.ok)return;
       const data=await response.json();
+      handleBrainrotGiftBroadcast(data);
+
+const isBrainrotGift=
+  typeof data.message==='string' &&
+  data.message.startsWith('[[BRAINROT_GIFT:');
       if(data.active){
         pollEl.classList.remove('hidden');
         pollQ.textContent=data.question;
@@ -760,7 +1175,12 @@ if(luck8Btn)luck8Btn.onclick=()=>{
   }
 }function bindUI(){ $('start-button').onclick=()=>{show('club-screen');renderClub();if(audio)audio.playBGM(ASSETS.bgm);} ;const eventAreaBtn=document.getElementById('event-area-btn'); const eventAreaPanel=document.getElementById('event-area-panel');const eventAreaClose=document.getElementById('event-area-close');if(eventAreaBtn&&eventAreaPanel){
   eventAreaBtn.onclick=enterEventPlatform;
-};if(eventAreaClose&&eventAreaPanel)eventAreaClose.onclick=()=>eventAreaPanel.classList.add('hidden');const eventArenaBack=document.getElementById('event-arena-back');if(eventArenaBack)eventArenaBack.onclick=leaveEventPlatform;$('play-bot').onclick=beginMatch;$('create-room').onclick=createRoom;$('join-room').onclick=joinRoom;$('hatch-button').onclick=()=>hatch('sticker');$('legendary-hatch-button').onclick=()=>hatch('legendary');startCountdown();$('close-hatch').onclick=()=>$('hatch-modal').classList.add('hidden');$('back-club').onclick=()=>{show('club-screen');renderClub();};$('exit-match').onclick=()=>{state.playing=false;show('club-screen');renderClub();};addEventListener('keydown',e=>{if(['Space','KeyQ'].includes(e.code))e.preventDefault();keys.add(e.code);});addEventListener('keyup',e=>keys.delete(e.code)); initTouch(); pollBroadcast();
+};if(eventAreaClose&&eventAreaPanel)eventAreaClose.onclick=()=>eventAreaPanel.classList.add('hidden');const eventArenaBack=document.getElementById('event-arena-back');if(eventArenaBack)eventArenaBack.onclick=leaveEventPlatform;$('play-bot').onclick=beginMatch;$('create-room').onclick=createRoom;$('join-room').onclick=joinRoom;$('hatch-button').onclick=()=>hatch('sticker');const fuseButton = $('halloween-fuse-button');
+if (fuseButton) fuseButton.onclick = fuseHalloween;
+
+const fuseBack = $('halloween-fuse-back');
+if (fuseBack) fuseBack.onclick = () => show('club-screen');$('legendary-hatch-button').onclick=()=>hatch('legendary');startCountdown();$('close-hatch').onclick=()=>$('hatch-modal').classList.add('hidden');$('back-club').onclick=()=>{show('club-screen');renderClub();};$('exit-match').onclick=()=>{state.playing=false;show('club-screen');renderClub();};addEventListener('keydown',e=>{if(['Space','KeyQ'].includes(e.code))e.preventDefault();keys.add(e.code);});addEventListener('keyup',e=>keys.delete(e.code)); initTouch(); initBrainrotAP();
+pollBroadcast();
  const redeemCodeInput=document.getElementById('redeem-code-input');
  const redeemCodeBtn=document.getElementById('redeem-code-btn');
  const redeemCodeStatus=document.getElementById('redeem-code-status');
@@ -984,7 +1404,78 @@ function initDailyWheel(){
     }
   });
 }
+function initChristmasIntro(){
+  const screen = document.getElementById('loading-screen');
+  if(!screen || screen.dataset.christmasIntro === '1') return;
+  screen.dataset.christmasIntro = '1';
 
+  const style = document.createElement('style');
+  style.textContent = `
+    .bfc-snow-layer{
+      position:fixed;
+      inset:0;
+      overflow:hidden;
+      pointer-events:none;
+      z-index:9998;
+    }
+    .bfc-snowflake{
+      position:absolute;
+      top:-30px;
+      left:var(--x);
+      color:white;
+      opacity:var(--opacity);
+      font-size:var(--size);
+      animation:bfcSnowFall var(--duration) linear var(--delay) infinite;
+    }
+    @keyframes bfcSnowFall{
+      to{
+        transform:translate3d(var(--drift),110vh,0) rotate(360deg);
+      }
+    }
+    .bfc-santa-fly{
+      position:fixed;
+      left:-180px;
+      top:16%;
+      z-index:9999;
+      font-size:clamp(42px,8vw,76px);
+      white-space:nowrap;
+      pointer-events:none;
+      animation:bfcSantaFly 11s ease-in-out 1.5s 1 both;
+    }
+    @keyframes bfcSantaFly{
+      0%{transform:translateX(0) translateY(0) rotate(-4deg)}
+      50%{transform:translateX(55vw) translateY(-28px) rotate(2deg)}
+      100%{transform:translateX(calc(100vw + 220px)) translateY(12px) rotate(-2deg)}
+    }
+  `;
+  document.head.appendChild(style);
+
+  const snow = document.createElement('div');
+  snow.className = 'bfc-snow-layer';
+
+  for(let i=0;i<40;i++){
+    const flake = document.createElement('span');
+    flake.className = 'bfc-snowflake';
+    flake.textContent = '❄';
+    flake.style.setProperty('--x',`${Math.random()*100}%`);
+    flake.style.setProperty('--size',`${10+Math.random()*16}px`);
+    flake.style.setProperty('--opacity',`${0.4+Math.random()*0.6}`);
+    flake.style.setProperty('--duration',`${6+Math.random()*9}s`);
+    flake.style.setProperty('--delay',`${-Math.random()*12}s`);
+    flake.style.setProperty('--drift',`${Math.random()*100-50}px`);
+    snow.appendChild(flake);
+  }
+
+  screen.appendChild(snow);
+
+  const santa = document.createElement('div');
+  santa.className = 'bfc-santa-fly';
+  santa.textContent = '🎅🛷';
+  screen.appendChild(santa);
+
+  santa.addEventListener('animationend',()=>santa.remove());
+}
+initChristmasIntro();
 initAdminPanel();
 init();
 function initBananiniEgg(){

@@ -240,7 +240,7 @@
 }
 .event-area-btn {
   position: fixed;
-  top: 22px;
+  top: 70px;
   right: 22px;
   z-index: 1000;
   padding: 12px 16px;
@@ -295,7 +295,7 @@
 .event-arena-screen {
   z-index: 900;
   justify-content: flex-start;
-  padding-top: clamp(24px, 6vh, 56px);
+  padding-top: 24px;
   background: linear-gradient(180deg,rgba(8,19,38,.2),rgba(8,19,38,.05) 55%,rgba(8,19,38,.35));
   pointer-events: none;
 }
