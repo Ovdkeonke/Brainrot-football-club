@@ -7,6 +7,7 @@ import AudioManager from './audio-manager.js';
 
 const $ = (id) => document.getElementById(id);
 const screens = ['loading-screen','club-screen','match-screen','result-screen','event-arena-screen','halloween-fuse-screen'];
+const FUSE_ENABLED = false;
 const GAME_ID = 'brainrot-football-club';
 const PLATFORM_USER_ID = '00000001';
 const localKey = `game-data:${PLATFORM_USER_ID}:${GAME_ID}:${window.__devMode ? 'profile-dev' : 'profile'}`;
@@ -503,6 +504,7 @@ function toggleLineup(id){const line=state.profile.lineup;if(line.includes(id)){
    $('hatch-modal').classList.remove('hidden');
  }
 function fuseHalloween(){
+  if (!FUSE_ENABLED) return;
   const result=$('halloween-fuse-result');
   if(state.profile.coins<10000){
     toast('Du brauchst 10.000 Coins!');
@@ -1175,8 +1177,12 @@ if(luck8Btn)luck8Btn.onclick=()=>{
   }
 }function bindUI(){ $('start-button').onclick=()=>{show('club-screen');renderClub();if(audio)audio.playBGM(ASSETS.bgm);} ;const eventAreaBtn=document.getElementById('event-area-btn'); const eventAreaPanel=document.getElementById('event-area-panel');const eventAreaClose=document.getElementById('event-area-close');if(eventAreaBtn&&eventAreaPanel){
   eventAreaBtn.onclick=enterEventPlatform;
-};if(eventAreaClose&&eventAreaPanel)eventAreaClose.onclick=()=>eventAreaPanel.classList.add('hidden');const eventArenaBack=document.getElementById('event-arena-back');if(eventArenaBack)eventArenaBack.onclick=leaveEventPlatform;$('play-bot').onclick=beginMatch;$('create-room').onclick=createRoom;$('join-room').onclick=joinRoom;$('hatch-button').onclick=()=>hatch('sticker');const fuseButton = $('halloween-fuse-button');
-if (fuseButton) fuseButton.onclick = fuseHalloween;
+};if(eventAreaClose&&eventAreaPanel)eventAreaClose.onclick=()=>eventAreaPanel.classList.add('hidden');const eventArenaBack=document.getElementById('event-arena-back');if(eventArenaBack)eventArenaBack.onclick=leaveEventPlatform;$('play-bot').onclick=beginMatch;$('create-room').onclick=createRoom;$('join-room').onclick=joinRoom;$('hatch-button').onclick=()=>hatch('sticker');
+const fuseButton = $('halloween-fuse-button');
+if (fuseButton) {
+  fuseButton.style.setProperty('display', 'none', 'important');
+  fuseButton.onclick = null;
+}
 
 const fuseBack = $('halloween-fuse-back');
 if (fuseBack) fuseBack.onclick = () => show('club-screen');$('legendary-hatch-button').onclick=()=>hatch('legendary');startCountdown();$('close-hatch').onclick=()=>$('hatch-modal').classList.add('hidden');$('back-club').onclick=()=>{show('club-screen');renderClub();};$('exit-match').onclick=()=>{state.playing=false;show('club-screen');renderClub();};addEventListener('keydown',e=>{if(['Space','KeyQ'].includes(e.code))e.preventDefault();keys.add(e.code);});addEventListener('keyup',e=>keys.delete(e.code)); initTouch(); initBrainrotAP();
